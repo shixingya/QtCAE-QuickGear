@@ -1,0 +1,257 @@
+{
+  "sha": "289cce80658d1dce83c0b9b97160fd65e415720e",
+  "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/trees/289cce80658d1dce83c0b9b97160fd65e415720e",
+  "tree": [
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3650843eca0646944ed5dca84c5ce7d113edcf7b",
+      "size": 467,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/3650843eca0646944ed5dca84c5ce7d113edcf7b"
+    },
+    {
+      "path": "LICENSE",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fac068c10dbe488f33ffea5575d1e3e9af6589ec",
+      "size": 1945,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/fac068c10dbe488f33ffea5575d1e3e9af6589ec"
+    },
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b3551719d03ebeade0a896c3760045b0b21a00f0",
+      "size": 8950,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/b3551719d03ebeade0a896c3760045b0b21a00f0"
+    },
+    {
+      "path": "docs",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "e254c14e87ca7a12bf2c068fd096de7a56592978",
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/trees/e254c14e87ca7a12bf2c068fd096de7a56592978"
+    },
+    {
+      "path": "docs/index.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4f42b5f952e178ac2921a38da22058d927202405",
+      "size": 49305,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/4f42b5f952e178ac2921a38da22058d927202405"
+    },
+    {
+      "path": "src",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "c0ac1f988ac91d7bd7f1fbe5d1877aa6b75f48df",
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/trees/c0ac1f988ac91d7bd7f1fbe5d1877aa6b75f48df"
+    },
+    {
+      "path": "src/CMakeLists.txt",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d948f79a5e4350127d1c20d14c19e55d07bf29a5",
+      "size": 3859,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/d948f79a5e4350127d1c20d14c19e55d07bf29a5"
+    },
+    {
+      "path": "src/README.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "dc370b1671738c026a62620f5520fefb6648d6f8",
+      "size": 7921,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/dc370b1671738c026a62620f5520fefb6648d6f8"
+    },
+    {
+      "path": "src/app",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "a437b537aa56b2eec636cb09f3e8dbd2a8a89828",
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/trees/a437b537aa56b2eec636cb09f3e8dbd2a8a89828"
+    },
+    {
+      "path": "src/app/ActivationDialog.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "52b089c39e590d220745f657f6667f10f0411a3c",
+      "size": 5274,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/52b089c39e590d220745f657f6667f10f0411a3c"
+    },
+    {
+      "path": "src/app/ActivationDialog.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5cc1ee63477b71e6d120ceae406b68df255c7b69",
+      "size": 973,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/5cc1ee63477b71e6d120ceae406b68df255c7b69"
+    },
+    {
+      "path": "src/app/MainWindow.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e7afd5f492b6d5231f91b3634712a73156bc4d1d",
+      "size": 10968,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/e7afd5f492b6d5231f91b3634712a73156bc4d1d"
+    },
+    {
+      "path": "src/app/MainWindow.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4aea6eddef5b290d3fa9d80ca4096a529699e61f",
+      "size": 1654,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/4aea6eddef5b290d3fa9d80ca4096a529699e61f"
+    },
+    {
+      "path": "src/app/ParamPanel.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a78d9edde7334a09d52d1c0f80d0797ec5b8b456",
+      "size": 5047,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/a78d9edde7334a09d52d1c0f80d0797ec5b8b456"
+    },
+    {
+      "path": "src/app/ParamPanel.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "eac0b33a0f1abb17e68263987eb4c713abe33312",
+      "size": 997,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/eac0b33a0f1abb17e68263987eb4c713abe33312"
+    },
+    {
+      "path": "src/app/SolveWorker.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fd5e22104199c4961258e5e78642696579e4cf7a",
+      "size": 600,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/fd5e22104199c4961258e5e78642696579e4cf7a"
+    },
+    {
+      "path": "src/app/SolveWorker.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "31cc36f9b883da00cee840777385569abb92cdef",
+      "size": 613,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/31cc36f9b883da00cee840777385569abb92cdef"
+    },
+    {
+      "path": "src/app/StressView.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d3a5b7f54e84a7675ec4d95a03d9e69f5745828f",
+      "size": 7621,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/d3a5b7f54e84a7675ec4d95a03d9e69f5745828f"
+    },
+    {
+      "path": "src/app/StressView.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "cd1bcea4a74add7b80abbfdd2aa963812e2b75b4",
+      "size": 1438,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/cd1bcea4a74add7b80abbfdd2aa963812e2b75b4"
+    },
+    {
+      "path": "src/core",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "42f8ac374f1a7ff4c8e25d41b4f9d075fd4c9e68",
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/trees/42f8ac374f1a7ff4c8e25d41b4f9d075fd4c9e68"
+    },
+    {
+      "path": "src/core/GearParams.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "991e62502b1625e509ef07c3b816e6cbb8c55159",
+      "size": 862,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/991e62502b1625e509ef07c3b816e6cbb8c55159"
+    },
+    {
+      "path": "src/core/ISolverBackend.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1b775ede102e6476ce44461aa8cb03792d053b33",
+      "size": 1822,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/1b775ede102e6476ce44461aa8cb03792d053b33"
+    },
+    {
+      "path": "src/core/LicenseManager.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ca7bb21ed4526d1a09ae36b95963417309239b22",
+      "size": 7321,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/ca7bb21ed4526d1a09ae36b95963417309239b22"
+    },
+    {
+      "path": "src/core/LicenseManager.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2148c0a5e46b152cc36d4a389217e06fcf2043f8",
+      "size": 3299,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/2148c0a5e46b152cc36d4a389217e06fcf2043f8"
+    },
+    {
+      "path": "src/core/MockSolverBackend.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "43a0045b998daa2561f34633f6e4b18d72c65a2b",
+      "size": 3619,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/43a0045b998daa2561f34633f6e4b18d72c65a2b"
+    },
+    {
+      "path": "src/core/MockSolverBackend.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "481bd48e6a2c9df50dab801807c04e55aed2d8b3",
+      "size": 893,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/481bd48e6a2c9df50dab801807c04e55aed2d8b3"
+    },
+    {
+      "path": "src/core/SolverFactory.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f43e153d4d926125554da4a8139cc39d26123faf",
+      "size": 438,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/f43e153d4d926125554da4a8139cc39d26123faf"
+    },
+    {
+      "path": "src/core/SolverFactory.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5ad35f6b4fd595ec439a670de58e45732d2182af",
+      "size": 366,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/5ad35f6b4fd595ec439a670de58e45732d2182af"
+    },
+    {
+      "path": "src/main.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a890293d3434b3e62f40e48d81c1cbef272089a2",
+      "size": 4075,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/a890293d3434b3e62f40e48d81c1cbef272089a2"
+    },
+    {
+      "path": "src/tools",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "595ec49ac253fb5a7063e791a6da855a26a72fc7",
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/trees/595ec49ac253fb5a7063e791a6da855a26a72fc7"
+    },
+    {
+      "path": "src/tools/license_issuer",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "778f6c8ee7fe3e4adaf3d2c116ca3c922273d18d",
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/trees/778f6c8ee7fe3e4adaf3d2c116ca3c922273d18d"
+    },
+    {
+      "path": "src/tools/license_issuer/main.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bc061123170e8db1cf148ef1481d559971d14ef1",
+      "size": 9138,
+      "url": "https://api.github.com/repos/shixingya/QtCAE-QuickGear/git/blobs/bc061123170e8db1cf148ef1481d559971d14ef1"
+    }
+  ],
+  "truncated": false
+}

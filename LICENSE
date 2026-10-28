@@ -19,20 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
--------------------------------------------------------------------------------
-Scope note / 适用范围说明
-
-The MIT license above covers ONLY the open-source part of this repository:
-  - docs/            demo web page (single-file front end)
-  - src/             Qt shell: UI, parameter panel, stress view, solve thread,
-                     activation dialog, solver abstraction layer, mock backend,
-                     machine-code / license manager, license issuer tool
-
-The following are NOT covered and are All Rights Reserved:
-  - the closed-source solver and AI meshing modules (encrypted static library),
-    delivered only as part of a paid license;
-  - reverse engineering, cracking or redistribution of those modules.
-
-This license also does not grant any rights to the "QtCAE-QuickGear" name or to
-represent this software as certified for design verification.

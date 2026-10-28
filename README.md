@@ -187,3 +187,4 @@ QtCAE-QuickGear/
 
 - 开源部分（`docs/` 演示页、Qt 壳工程界面代码、`qglicense` 工具）：[MIT](LICENSE)
 - 闭源部分（求解器、AI 网格模块，加密静态库）：**All rights reserved**，仅随授权交付，禁止逆向与再分发
+- 本项目不授予「QtCAE-QuickGear」名称使用权，也不表示任何设计验证资质的认可
