@@ -388,7 +388,7 @@ input[type=range]:hover::-webkit-slider-thumb{background:#eef3f8}
   <div class="modal-mask" data-close></div>
   <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <h3 id="modalTitle">今日试用次数已耗尽</h3>
-    <p>复制下方设备码，联系开发者获取 Qt 本地版激活授权。</p>
+    <p id="modalLead">复制下方设备码，联系开发者获取 Qt 本地版激活授权。</p>
     <div class="code-box">
       <code id="machineCode">--</code>
       <button class="btn btn-primary" id="copyBtn">一键复制</button>
@@ -516,6 +516,8 @@ const quotaEls = {
   meter: $('meter'),
   inline: $('deviceCodeInline'),
   modal: $('modal'),
+  modalTitle: $('modalTitle'),
+  modalLead: $('modalLead'),
   machineCode: $('machineCode'),
   copyBtn: $('copyBtn'),
   showCodeBtn: $('showCodeBtn'),
@@ -660,8 +662,17 @@ function renderQuota() {
   }
 }
 
-/** 打开设备码弹窗 */
-function openModal() {
+/**
+ * 打开设备码弹窗。
+ * reason = 'exhausted' 额度耗尽时自动弹出，标题指向“次数用完”；
+ * reason = 'manual'   用户主动查看设备码，不能沿用“已耗尽”的文案。
+ */
+function openModal(reason = 'manual') {
+  const exhausted = reason === 'exhausted';
+  quotaEls.modalTitle.textContent = exhausted ? '今日试用次数已耗尽' : '本机设备码';
+  quotaEls.modalLead.textContent = exhausted
+    ? '复制下方设备码，联系开发者获取 Qt 本地版激活授权。'
+    : '这是本机浏览器生成的设备码，可用于与开发者沟通试用与授权。';
   quotaEls.machineCode.textContent = trial.fp || '识别失败，请刷新页面重试';
   quotaEls.modal.hidden = false;
   document.body.style.overflow = 'hidden';
@@ -1139,7 +1150,7 @@ async function runPreview() {
   // 额度已耗尽 → 直接弹窗引导获取本地版授权
   if (trial.used >= CONFIG.dailyLimit) {
     renderQuota();
-    openModal();
+    openModal('exhausted');
     return;
   }
 
@@ -1179,7 +1190,7 @@ async function runPreview() {
    ============================================================ */
 function bindEvents() {
   // 试用额度
-  quotaEls.showCodeBtn.addEventListener('click', openModal);
+  quotaEls.showCodeBtn.addEventListener('click', () => openModal('manual'));
   quotaEls.copyBtn.addEventListener('click', copyMachineCode);
   quotaEls.modal.addEventListener('click', (e) => {
     if (e.target.hasAttribute('data-close')) closeModal();
