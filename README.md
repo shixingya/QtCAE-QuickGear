@@ -8,6 +8,7 @@
 [![平台](https://img.shields.io/badge/平台-Windows%20x64-475569?style=flat-square)](#)
 [![求解器](https://img.shields.io/badge/求解器-闭源加密库-B42318?style=flat-square)](#)
 [![演示页](https://img.shields.io/badge/在线演示-GitHub%20Pages-059669?style=flat-square)](https://shixingya.github.io/QtCAE-QuickGear/)
+[![License](https://img.shields.io/badge/License-MIT-1E3A5F?style=flat-square)](LICENSE)
 [![版本](https://img.shields.io/badge/版本-v0.1%20预览-2563EB?style=flat-square)](#)
 [![Issues](https://img.shields.io/badge/Issues-欢迎反馈-8a97a6?style=flat-square)](https://github.com/shixingya/QtCAE-QuickGear/issues)
 
@@ -184,5 +185,5 @@ QtCAE-QuickGear/
 
 ## License
 
-- 开源部分（`docs/`、Qt 壳工程界面代码）：见仓库 `LICENSE`
+- 开源部分（`docs/` 演示页、Qt 壳工程界面代码、`qglicense` 工具）：[MIT](LICENSE)
 - 闭源部分（求解器、AI 网格模块，加密静态库）：**All rights reserved**，仅随授权交付，禁止逆向与再分发
