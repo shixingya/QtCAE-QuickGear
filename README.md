@@ -9,7 +9,7 @@
 [![求解器](https://img.shields.io/badge/求解器-闭源加密库-B42318?style=flat-square)](#)
 [![演示页](https://img.shields.io/badge/在线演示-GitHub%20Pages-059669?style=flat-square)](https://shixingya.github.io/QtCAE-QuickGear/)
 [![License](https://img.shields.io/badge/License-MIT-1E3A5F?style=flat-square)](LICENSE)
-[![版本](https://img.shields.io/badge/版本-v0.2%20预览-2563EB?style=flat-square)](#)
+[![版本](https://img.shields.io/badge/版本-v0.3%20预览-2563EB?style=flat-square)](#)
 [![Issues](https://img.shields.io/badge/Issues-欢迎反馈-8a97a6?style=flat-square)](https://github.com/shixingya/QtCAE-QuickGear/issues)
 
 **快速预览**：https://shixingya.github.io/QtCAE-QuickGear/
@@ -31,6 +31,7 @@ QtCAE-QuickGear 把"算一轮齿轮应力"这件事压缩到几分钟：导入�
 - **齿轮专用流程**：参数化齿轮副（模数 / 齿数 / 扭矩）或 STL 几何导入，直接出结果
 - **可交付的结果**：峰值等效应力、最大位移、单元规模、安全系数与云图
 - **能交出去的结论页**：一键导出单页 A4 PDF（结论句 + 参数表 + 云图 + 免责声明）或云图 PNG
+- **能卖得出去的授权**：离线授权文件绑定机器码，台账批量签发 + 到期提醒与续费审计
 - **能接着干活**：工程存成 `.qgpj`，下次打开连参数、几何与上次结果一起回来
 
 ---
@@ -170,8 +171,10 @@ QtCAE-QuickGear/
 - [x] STL 导入（二进制 / ASCII）+ 未求解时的几何投影预览
 - [x] 结果导出：云图 PNG / 单页 A4 结论 PDF（未授权自动加水印）
 - [x] 工程文件 `.qgpj` + 拖放打开 + 最近文件 + 求解日志面板
-- [x] `qgselftest` 冒烟自检（20 项，含 PDF 单页与渲染覆盖率断言）
+- [x] `qgselftest` 冒烟自检（26 项，含 PDF 单页、渲染覆盖率、授权到期与批量签发断言）
 - [ ] 签名升级为 Ed25519 公钥验签（当前为共享密钥，可被逆向）
+- [x] 授权经营链路：台账批量签发 + 交付单、客户端到期徽标与提醒、`qglicense audit` 续费审计
+- [ ] 授权在线自助续期（当前为离线人工签发）
 - [ ] 闭源求解器接入（`-DQTG_USE_CLOSED_SOLVER=ON`）
 - [ ] 三维云图渲染（OpenGL / VTK 替换当前 2D 示意视图）
 - [ ] 导入几何参与求解（网格修复 / 实体化，目前仅预览）

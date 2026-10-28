@@ -74,6 +74,7 @@ private:
 
     void refreshBackendBadge();
     void refreshLicenseBadge();
+    void remindLicenseExpiry();
     void refreshActions();
     void updateWindowTitle();
     void setBusy(bool busy);
@@ -95,6 +96,7 @@ private:
 
     std::unique_ptr<ISolverBackend> m_backend;
     LicenseManager                  m_license;
+    LicenseInfo                     m_licenseInfo;   // 启动时读一次，徽标与到期提醒共用
 
     ParamPanel   *m_paramPanel  = nullptr;
     StressView   *m_stressView  = nullptr;

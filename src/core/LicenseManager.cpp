@@ -80,14 +80,44 @@ QString LicenseManager::defaultLicensePath()
     return dir + QStringLiteral("/license.qglic");
 }
 
+QString LicenseManager::normalizeMachineCode(const QString &raw)
+{
+    QString code = raw.trimmed().toUpper();
+    code.remove(QLatin1Char(' '));
+    code.remove(QLatin1Char('\t'));
+
+    // 客户回信里常见三种写法：带连字符的、连写的、从截图里 OCR 出空格的。
+    // 连写且长度刚好 32 位时按 4 位一组补齐，否则原样返回（让校验去报错）。
+    if (!code.contains(QLatin1Char('-')) && code.size() == 32)
+        return formatCode(code);
+    return code;
+}
+
+bool LicenseManager::machineCodeLooksValid(const QString &raw)
+{
+    const QString code = normalizeMachineCode(raw);
+    if (code.size() != 39)
+        return false;
+    for (int i = 0; i < code.size(); ++i) {
+        const QChar ch = code.at(i);
+        if ((i + 1) % 5 == 0) {
+            if (ch != QLatin1Char('-'))
+                return false;
+        } else if (!(ch.isDigit() || (ch >= QLatin1Char('A') && ch <= QLatin1Char('F')))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 QString LicenseManager::canonicalString(const QString &machine, const QString &licensee,
                                        const QString &edition, const QDate &issued,
                                        const QDate &expire)
 {
-    // 约定：机器码统一大写、日期统一 ISO（yyyy-MM-dd）、空日期写作空串。
+    // 约定：机器码统一大写并补齐连字符、日期统一 ISO（yyyy-MM-dd）、空日期写作空串。
     // 签发工具与客户端共用本函数，保证两边拼串规则一致。
     return QStringList{
-               machine.trimmed().toUpper(),
+               normalizeMachineCode(machine),
                licensee.trimmed(),
                edition.trimmed(),
                issued.isValid() ? issued.toString(Qt::ISODate) : QString(),
@@ -117,18 +147,20 @@ bool LicenseManager::verifySignature(const QString &canonical, const QByteArray 
     return diff == 0;
 }
 
-LicenseInfo LicenseManager::loadFromFile(const QString &path) const
+LicenseInfo LicenseManager::parseFile(const QString &path, bool checkMachine)
 {
     LicenseInfo info;
     info.machineCode = machineCode();
 
     QFile file(path);
     if (!file.exists()) {
-        info.edition = QStringLiteral("trial");
-        info.message = QStringLiteral("未安装授权文件，当前为试用状态");
+        info.state    = LicenseState::Missing;
+        info.edition  = QStringLiteral("trial");
+        info.message  = QStringLiteral("未安装授权文件，当前为试用状态");
         return info;
     }
     if (!file.open(QIODevice::ReadOnly)) {
+        info.state   = LicenseState::Unreadable;
         info.message = QStringLiteral("授权文件无法读取：%1").arg(file.errorString());
         return info;
     }
@@ -138,6 +170,7 @@ LicenseInfo LicenseManager::loadFromFile(const QString &path) const
     file.close();
 
     if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        info.state   = LicenseState::Unreadable;
         info.message = QStringLiteral("授权文件格式错误：%1").arg(parseError.errorString());
         return info;
     }
@@ -147,39 +180,124 @@ LicenseInfo LicenseManager::loadFromFile(const QString &path) const
     info.edition  = obj.value(QStringLiteral("edition")).toString(QStringLiteral("pro"));
     info.issued   = QDate::fromString(obj.value(QStringLiteral("issued")).toString(), Qt::ISODate);
     info.expire   = QDate::fromString(obj.value(QStringLiteral("expire")).toString(), Qt::ISODate);
+    info.daysLeft = info.expire.isValid() ? QDate::currentDate().daysTo(info.expire) : -1;
 
-    const QString boundMachine = obj.value(QStringLiteral("machine")).toString().toUpper();
-    if (boundMachine.isEmpty()) {
+    info.boundMachine = normalizeMachineCode(obj.value(QStringLiteral("machine")).toString());
+    if (info.boundMachine.isEmpty()) {
+        info.state   = LicenseState::Unreadable;
         info.message = QStringLiteral("授权文件缺少 machine 字段");
         return info;
     }
-    if (boundMachine != info.machineCode) {
-        info.message = QStringLiteral("授权与本机不匹配：授权码 %1，本机 %2")
-                           .arg(boundMachine, info.machineCode);
-        return info;
-    }
-    if (info.expire.isValid() && info.expire < QDate::currentDate()) {
-        info.message = QStringLiteral("授权已于 %1 到期").arg(info.expire.toString(Qt::ISODate));
-        return info;
-    }
 
-    // 验签：签名覆盖 machine|licensee|edition|issued|expire，任何字段被改动都会对不上
-    const QString canonical = canonicalString(boundMachine, info.licensee, info.edition,
+    // 先验签再判适用性：签名都不过的文件不该继续被当成“只是机器不匹配”
+    const QString canonical = canonicalString(info.boundMachine, info.licensee, info.edition,
                                               info.issued, info.expire);
     const QByteArray sig = obj.value(QStringLiteral("sig")).toString().toLatin1();
     if (sig.isEmpty()) {
+        info.state   = LicenseState::BadSignature;
         info.message = QStringLiteral("授权文件缺少签名（sig），无法确认来源");
         return info;
     }
     if (!verifySignature(canonical, sig)) {
+        info.state   = LicenseState::BadSignature;
         info.message = QStringLiteral("签名校验失败：授权文件被修改，或不是由签发工具生成");
         return info;
     }
-
     info.signatureChecked = true;
-    info.valid            = true;
-    info.message          = QStringLiteral("授权有效（签名校验通过）");
+
+    if (checkMachine && info.boundMachine != info.machineCode) {
+        info.state   = LicenseState::ForeignMachine;
+        info.message = QStringLiteral("授权与本机不匹配：授权码 %1，本机 %2")
+                           .arg(info.boundMachine, info.machineCode);
+        return info;
+    }
+    if (info.expire.isValid() && info.expire < QDate::currentDate()) {
+        info.state   = LicenseState::Expired;
+        info.message = QStringLiteral("授权已于 %1 到期，请联系续期")
+                           .arg(info.expire.toString(Qt::ISODate));
+        return info;
+    }
+
+    info.state   = LicenseState::Valid;
+    info.valid   = true;
+    info.message = info.expiringSoon()
+                       ? QStringLiteral("授权有效，%1").arg(expiryText(info))
+                       : QStringLiteral("授权有效（签名校验通过）");
     return info;
+}
+
+LicenseInfo LicenseManager::loadFromFile(const QString &path) const
+{
+    return parseFile(path, true);
+}
+
+QString LicenseManager::stateName(LicenseState state)
+{
+    switch (state) {
+    case LicenseState::Missing:        return QStringLiteral("MISSING");
+    case LicenseState::Unreadable:     return QStringLiteral("BADFILE");
+    case LicenseState::BadSignature:   return QStringLiteral("BADSIG");
+    case LicenseState::ForeignMachine: return QStringLiteral("FOREIGN");
+    case LicenseState::Expired:        return QStringLiteral("EXPIRED");
+    case LicenseState::Valid:          return QStringLiteral("VALID");
+    }
+    return QStringLiteral("UNKNOWN");
+}
+
+QString LicenseManager::expiryText(const LicenseInfo &info)
+{
+    if (!info.expire.isValid())
+        return QStringLiteral("永久有效");
+    if (info.daysLeft > 0)
+        return QStringLiteral("剩 %1 天").arg(info.daysLeft);
+    if (info.daysLeft == 0)
+        return QStringLiteral("今日到期");
+    return QStringLiteral("已过期 %1 天").arg(-info.daysLeft);
+}
+
+bool LicenseManager::writeLicenseFile(const QString &path, const QString &machine,
+                                      const QString &licensee, const QString &edition,
+                                      const QDate &issued, const QDate &expire,
+                                      QString *signatureBase64, QString *error)
+{
+    const QString bound = normalizeMachineCode(machine);
+    if (bound.isEmpty()) {
+        if (error) *error = QStringLiteral("机器码为空");
+        return false;
+    }
+    if (!machineCodeLooksValid(bound)) {
+        if (error)
+            *error = QStringLiteral("机器码格式不对（应为 8 组 4 位十六进制）：%1").arg(bound);
+        return false;
+    }
+    if (licensee.trimmed().isEmpty()) {
+        if (error) *error = QStringLiteral("授权对象为空");
+        return false;
+    }
+
+    const QString canonical = canonicalString(bound, licensee, edition, issued, expire);
+    const QString sig = QString::fromLatin1(signPayload(canonical).toBase64());
+
+    QJsonObject obj;
+    obj.insert(QStringLiteral("v"), 1);
+    obj.insert(QStringLiteral("machine"), bound);
+    obj.insert(QStringLiteral("licensee"), licensee.trimmed());
+    obj.insert(QStringLiteral("edition"), edition.trimmed());
+    obj.insert(QStringLiteral("issued"), issued.isValid() ? issued.toString(Qt::ISODate) : QString());
+    obj.insert(QStringLiteral("expire"), expire.isValid() ? expire.toString(Qt::ISODate) : QString());
+    obj.insert(QStringLiteral("sig"), sig);
+    obj.insert(QStringLiteral("note"), QStringLiteral("QtCAE-QuickGear offline license"));
+
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        if (error) *error = QStringLiteral("无法写入 %1：%2").arg(path, file.errorString());
+        return false;
+    }
+    file.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+    file.close();
+
+    if (signatureBase64) *signatureBase64 = sig;
+    return true;
 }
 
 LicenseInfo LicenseManager::current() const

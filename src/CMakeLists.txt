@@ -1,11 +1,15 @@
 cmake_minimum_required(VERSION 3.16)
-project(QtCAE-QuickGear VERSION 0.2.0 LANGUAGES CXX)
+project(QtCAE-QuickGear VERSION 0.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
+# 版本号只有一个出处：project()。客户端的窗口标题、自检产物、签发工具都读它，
+# 避免“标题写 0.2、发出去的包其实是 0.3”这种事
+add_compile_definitions(QTG_VERSION="${PROJECT_VERSION}")
 
 # Qt6 优先，退化到 Qt5（本机为 Qt 5.15.2 / MinGW 8.1）
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Gui Widgets)
@@ -35,6 +39,7 @@ add_library(qgcore STATIC
     core/MockSolverBackend.h    core/MockSolverBackend.cpp
     core/SolverFactory.h        core/SolverFactory.cpp
     core/LicenseManager.h       core/LicenseManager.cpp
+    core/LicenseBatch.h         core/LicenseBatch.cpp
     core/StlMesh.h              core/StlMesh.cpp
     core/ProjectFile.h          core/ProjectFile.cpp
 )

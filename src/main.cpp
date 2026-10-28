@@ -15,7 +15,7 @@ int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("QtCAE-QuickGear"));
-    QApplication::setApplicationVersion(QStringLiteral("0.2.0"));
+    QApplication::setApplicationVersion(QStringLiteral(QTG_VERSION));
     QApplication::setOrganizationName(QStringLiteral("shixingya"));
 
     // 自定义信号参数类型（跨线程排队需要）

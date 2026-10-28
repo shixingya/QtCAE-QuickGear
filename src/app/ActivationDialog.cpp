@@ -95,15 +95,30 @@ void ActivationDialog::refresh()
 
     if (info.valid) {
         m_status->setText(QStringLiteral("授权状态：已激活（%1）").arg(info.edition));
-        QString detail = QStringLiteral("授权对象：%1").arg(info.licensee.isEmpty() ? QStringLiteral("—") : info.licensee);
+
+        QString detail = QStringLiteral("授权对象：%1")
+                             .arg(info.licensee.isEmpty() ? QStringLiteral("—") : info.licensee);
         if (info.expire.isValid())
-            detail += QStringLiteral("\n有效期至：%1").arg(info.expire.toString(QStringLiteral("yyyy-MM-dd")));
+            detail += QStringLiteral("\n有效期至：%1（%2）")
+                          .arg(info.expire.toString(QStringLiteral("yyyy-MM-dd")),
+                               LicenseManager::expiryText(info));
         detail += QStringLiteral("\n%1").arg(info.message);
+        if (info.expiringSoon())
+            detail += QStringLiteral("\n续期：把上面的机器码发给作者，收到新的 .qglic 后重新导入。");
         m_detail->setText(detail);
+        m_detail->setStyleSheet(info.expiringSoon() ? QStringLiteral("color:#B4692F;")
+                                                    : QString());
     } else {
-        m_status->setText(QStringLiteral("授权状态：未激活（试用）"));
-        m_detail->setText(QStringLiteral("%1\n授权文件路径：%2")
-                              .arg(info.message, LicenseManager::defaultLicensePath()));
+        const bool expired = info.state == LicenseState::Expired;
+        m_status->setText(expired ? QStringLiteral("授权状态：已过期")
+                                  : QStringLiteral("授权状态：未激活（试用）"));
+
+        QString detail = info.message;
+        if (expired)
+            detail += QStringLiteral("\n续期：把上面的机器码发给作者，收到新的 .qglic 后重新导入。");
+        detail += QStringLiteral("\n授权文件路径：%1").arg(LicenseManager::defaultLicensePath());
+        m_detail->setText(detail);
+        m_detail->setStyleSheet(expired ? QStringLiteral("color:#DC2626;") : QString());
     }
 }
 

@@ -28,9 +28,10 @@ src/
 │  ├─ SolverFactory.*          按编译开关选择后端
 │  ├─ StlMesh.*                STL 读取（二进制 / ASCII）、包围盒、体积、表面积
 │  ├─ ProjectFile.*            .qgpj 工程文件（参数 + 结果摘要 + 几何路径 + 备注）
-│  └─ LicenseManager.*         机器码生成 + 授权文件签名/验签
+│  ├─ LicenseManager.*         机器码生成 + 授权签名/验签 + 状态与剩余天数
+│  └─ LicenseBatch.*           台账批量签发 + 交付单（manifest.csv）
 └─ tools/
-   ├─ license_issuer/          qglicense：授权签发与校验（控制台，开发者自用）
+   ├─ license_issuer/          qglicense：签发 / 批量签发 / 到期审计（控制台，开发者自用）
    └─ selftest/                qgselftest：不点鼠标的冒烟自检（见下文）
 ```
 
@@ -111,7 +112,7 @@ Qt 6 亦可：`-DCMAKE_PREFIX_PATH=D:\Qt\6.x.x\msvc2019_64`，CMake 里 `find_pa
 .\build\qgselftest.exe --out out\selftest
 ```
 
-退出码 `0` 表示全过。当前 20 项，覆盖：
+退出码 `0` 表示全过。当前 26 项，覆盖：
 
 - **STL**：自己写 ASCII / 二进制两份再读回来，逐项比对面数、包围盒、体积（两格式体积差 < 1 mm³）
 - **求解**：后端能创建、能出非零应力与每齿数组
@@ -119,9 +120,13 @@ Qt 6 亦可：`-DCMAKE_PREFIX_PATH=D:\Qt\6.x.x\msvc2019_64`，CMake 里 `find_pa
 - **导出**：PDF 大小、**页数必须为 1**、PNG 大小、水印确实叠上了
 - **结论页**：用同一份 HTML 渲染一张 `report_preview.png`，汉字错位/豆腐块一眼能看出来
 - **工程文件**：存了再读，逐字段比对（含备注、几何路径、每齿数组长度）
-- **授权**：签名能过、改一个字节就不过
+- **授权**：签名能过、改一个字节就不过；机器码连写小写能被归一化；
+  剩 10 天判 `Valid` 且在提醒窗口内、过期 3 天判 `Expired`（过期必须盖过“机器匹配”）；
+  台账 5 行里 1 行坏码只拒它自己；批量写出 2 份 + 交付单 2 行且带 BOM；
+  **dry-run 不许建目录、不许落盘**
 
-产物都在 `--out` 目录：`report.pdf`、`report_preview.png`、`stress.png`、`mesh_preview.png`、`selftest.qgpj`。
+产物都在 `--out` 目录：`report.pdf`、`report_preview.png`、`stress.png`、`mesh_preview.png`、
+`selftest.qgpj`，以及 `issued/`（批量签发的授权与 `manifest.csv`）。
 
 ---
 
@@ -171,12 +176,31 @@ src/private/
 | 项 | 说明 |
 | --- | --- |
 | 机器码 | `SHA-256(machineUniqueId + 系统信息 + 注册表 MachineGuid)` 取前 32 位十六进制，按 4 位分组显示 |
-| 显示位置 | 菜单「授权 → 激活 / 查看机器码…」，状态栏显示 `授权：已激活（pro）` / `授权：未激活（试用）` |
+| 显示位置 | 菜单「授权 → 激活 / 查看机器码…」；状态栏徽标见下表 |
 | 授权文件 | `%APPDATA%/shixingya/QtCAE-QuickGear/license.qglic`（JSON） |
-| 校验顺序 | 结构 → 机器码匹配 → 有效期 → 签名，任一项不过即判无效并给出具体原因 |
+| 校验顺序 | 结构 → 签名 → 机器码绑定 → 有效期，任一项不过即判无效并给出具体原因 |
 | 签名算法 | HMAC-SHA256，签名串 `machine\|licensee\|edition\|issued\|expire`，验签常时间比较 |
+| 机器码归一化 | 大写、去空格、缺连字符的 32 位十六进制自动补分组——客户手抄漏横杠也能签 |
 
-### 签发授权
+> 为什么先验签再比机器码：一张被改过的文件不该以“机器不匹配”的名义回复客户，
+> 那会让双方都以为是对方的机器出了问题。
+
+### 状态栏徽标与到期提醒
+
+| 情形 | 徽标 | 颜色 |
+| --- | --- | --- |
+| 正常（距到期 > 30 天） | `授权：已激活（pro）` | 绿 |
+| 30 天内到期 | `授权：pro · 剩 12 天` | 橙 |
+| 已过期 | `授权：已过期` | 红 |
+| 绑的不是这台机器 | `授权：与本机不匹配` | 红 |
+| 签名对不上 | `授权：文件无效` | 红 |
+| 没装 / 读不出 | `授权：未激活（试用版）` | 橙 |
+
+启动弹窗只在 **剩 7 天内** 与 **已过期** 两种情况下出现，弹窗里带「复制机器码」按钮，
+一步就能把码发给作者。剩 30 天那种只把徽标变橙——天天弹窗只会让人学会无脑点掉，
+真到期那天反而不看了。
+
+### 签发单张授权
 
 用 `qglicense`（与客户端共用 `qgcore`，算法不会跑偏）：
 
@@ -200,11 +224,81 @@ src/private/
 | `--days 365` | 从签发日起算有效期，与 `--expire` 二选一 |
 | `--expire 2027-10-28` | 直接指定到期日 |
 | `--issued 2026-10-28` | 默认今天；补开历史授权或测试过期时才用 |
-| `--machine <CODE>` | 默认绑本机；给客户签发时填客户机器码 |
+| `--machine <CODE>` | 默认绑本机；给客户签发时填客户机器码（连写/小写均可） |
 | `--edition pro` | 版本标识，默认 `pro` |
 | `--out <file>` | 输出路径，默认当前目录 `license-<机器码前9位>-<到期日>.qglic` |
 
-退出码：`0` 成功/有效，`1` 校验不通过，`2` 参数错误，`3` 文件读写失败。输出是 ASCII 键值对（`VALID=YES` 等），可直接在脚本里 grep。
+### 批量签发：台账 → 一批授权 + 一张交付单
+
+一次给十几家开授权，或者把去年名单按新到期日整体续一年，就走这里：
+
+```powershell
+# 1. 写台账（Excel 另存为 CSV 即可，带不带 BOM 都认）
+#    machine,licensee,edition,days,expire
+#    3f1b92c47e10ab3566120d8c4f5e2299,某某机械厂,pro,365,
+#    A20A-...,"某某传动, 二分厂",pro,,2027-06-30
+
+# 2. 先试跑：只打印打算写哪些文件，不建目录、不落盘
+.\build\qglicense.exe batch --in 客户台账.csv --out issued --dry-run
+
+# 3. 真签
+.\build\qglicense.exe batch --in 客户台账.csv --out issued
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `--in <csv>` | 台账；列顺序固定为 `machine,licensee,edition,days,expire`，`#` 开头为注释，表头可有可无 |
+| `--out <dir>` | 产物目录，默认 `./issued` |
+| `--dry-run` | 只算目标文件名 |
+
+台账的几条硬规矩（都是会被客户真踩到的坑）：
+
+- `days` 与 `expire` 二选一，两者都给时以 `expire` 为准；
+- 机器码可以连写、小写、多空格；格式不对的在签发前就拦下——
+  **宁可在你这里报错，也不要让客户装上去看到「与本机不匹配」**；
+- 一行坏掉只影响那一行，其余照发，退出码 `4` 提醒你回台账看是哪行；
+- 文件名从授权对象清洗而来（逗号、斜线自动换 `-`），同一批重名加 `-2` 不覆盖。
+
+```text
+issued/
+├─ qglic-某某机械厂-2027-10-29.qglic
+├─ qglic-某某传动-二分厂-2027-06-30.qglic
+├─ qglic-某某模具厂-2026-12-13.qglic
+└─ manifest.csv     ← 交付单：机器码/授权对象/签发日/到期日/文件名/签名前 8 位/状态/错误
+```
+
+`manifest.csv` 是带 BOM 的 UTF-8，Excel 双击直接看、不乱码。
+它和授权文件是**同一次调用里一起写的**——只发文件不记账，
+三批之后就说不清谁买到哪天了。
+
+### 到期审计：谁该续费了
+
+```powershell
+# 扫已签的授权，列出窗口内到期 / 已过期 / 文件对不上的
+.\build\qglicense.exe audit issued --days 30 --csv 续费清单.csv
+```
+
+```text
+FILE=issued/qglic-某某模具厂-2026-12-13.qglic
+  MACHINE=7710-4C2E-... LICENSEE=某某模具厂 EDITION=pro
+  EXPIRES=2026-12-13 DAYS=45 STATE=VALID FLAG=EXPIRING
+SUMMARY TOTAL=3 OK=2 EXPIRING=1 EXPIRED=0 BROKEN=0 WINDOW=60
+```
+
+- `audit` **跳过机器码绑定校验**：客户的机器码本来就不是你本机的，
+  照常校验的话每张都是 `FOREIGN`，一个到期日都看不到。签名仍然照验，
+  所以 `EXPIRED`（该续费）与 `BROKEN`（文件被改过 / 不是自己签的）能分开统计。
+- `FLAG` 四态：`OK` / `EXPIRING`（窗口内）/ `EXPIRED` / `BROKEN`。
+- 有 `EXPIRING` / `EXPIRED` / `BROKEN` 时退出码 `4`，可挂进计划任务当续费看板。
+- `--csv` 那份续费清单同样带 BOM，可直接当催款工作表。
+
+> 控制台代码页不是 UTF-8 时，中文公司名可能显示成乱码；`--csv` 那份不会。
+
+退出码：`0` 成功，`1` 用法错误或 verify 不通过，`2` 参数错误，`3` 写盘失败，
+`4` batch 有失败行 / audit 发现待处理项。输出是 ASCII 键值对
+（`VALID=YES`、`STATE=EXPIRED`、`FLAG=EXPIRING`），可直接在脚本里 grep。
+
+dry-run 输出用 `PLANNED=` 而不是 `ISSUED=`：脚本里 grep 了 `ISSUED` 就等于以为文件已经发出去了。
 
 ### 授权文件格式
 
@@ -220,6 +314,9 @@ src/private/
   "note": "QtCAE-QuickGear offline license"
 }
 ```
+
+`expire` 留空表示**永久授权**，此时 `daysLeft` 固定为 `-1`、徽标不会进入到期提醒；
+`audit` 里这类会显示 `EXPIRES=perpetual DAYS=-1`，不计入续费清单。
 
 ### ⚠️ 关于签名强度（务必读完再商用）
 

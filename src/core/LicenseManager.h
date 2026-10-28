@@ -4,19 +4,52 @@
 #include <QDate>
 #include <QString>
 
+/** 到期前多少天开始提醒（签发侧 audit 与客户端徽标共用同一个阈值） */
+constexpr int kExpiryWarnDays = 30;
+
+/**
+ * 授权文件的判定结论。
+ *
+ * 为什么要区分到这么细：`valid` 只有是/否两态，而“签名有效但已过期”与
+ * “签名对不上”是两件完全不同的事——前者是续费对象，后者要查是谁改过文件。
+ * 签发侧 audit 需要按这个区分做续期清单，客户端也要据此给出不同措辞。
+ */
+enum class LicenseState
+{
+    Missing,        // 没有授权文件
+    Unreadable,     // 打不开 / JSON 结构错误
+    BadSignature,   // 签名对不上：被改过，或不是本工具签发的
+    ForeignMachine, // 签名有效，但绑的不是这台机器
+    Expired,        // 签名有效，但已过到期日
+    Valid           // 全部通过
+};
+
 /**
  * 授权信息（由本地授权文件解析得到）。
  */
 struct LicenseInfo
 {
-    bool    valid            = false;   // 结构、机器码、有效期都通过
-    bool    signatureChecked = false;   // 是否完成密码学验签
-    QString machineCode;                // 授权绑定的机器码
-    QString licensee;                   // 授权对象
-    QString edition;                    // pro / trial
-    QDate   issued;
-    QDate   expire;
-    QString message;                    // 给用户看的一句话状态
+    bool         valid            = false;  // 结构、机器码、有效期都通过
+    bool         signatureChecked = false;  // 是否完成密码学验签
+    LicenseState state            = LicenseState::Missing;
+    QString      machineCode;               // 本机机器码
+    QString      boundMachine;              // 授权文件里绑定的机器码（审计他机授权时看这个）
+    QString      licensee;                  // 授权对象
+    QString      edition;                   // pro / trial
+    QDate        issued;
+    QDate        expire;
+    /**
+     * 距到期天数：expire 有效时 = 今天到 expire 的天数，负数表示已过期 N 天；
+     * expire 无效（永久授权）时固定为 -1，需配合 expire.isValid() 判断。
+     */
+    int          daysLeft         = -1;
+    QString      message;                   // 给用户看的一句话状态
+
+    /** 有到期日、且剩余天数落在提醒窗口内 */
+    bool expiringSoon() const
+    {
+        return valid && expire.isValid() && daysLeft >= 0 && daysLeft <= kExpiryWarnDays;
+    }
 };
 
 /**
@@ -30,6 +63,7 @@ struct LicenseInfo
  *   3. 授权文件为 JSON，放在用户配置目录（不写入安装目录，避免 UAC 问题）。
  *   4. 签名采用 HMAC-SHA256（编译期注入的共享密钥），签名覆盖的规范化串为
  *      `machine|licensee|edition|issued|expire`，避免 JSON 序列化差异导致验签不稳定。
+ *      机器码在该串内统一归一化（大写、补连字符），客户手抄漏掉连字符也能对上。
  *   5. ⚠️ 共享密钥方案的局限：密钥编进客户端后理论上可被逆向获取（开源版默认密钥
  *      更是公开的）。它能挡住“拿到文件就能用”的随手修改，挡不住专门的破解。
  *      正式版应将 verifySignature() 换成闭源模块里的 Ed25519 公钥验签（私钥只在签发侧），
@@ -49,11 +83,48 @@ public:
     /** 读取默认路径下的授权；文件不存在时返回试用状态 */
     LicenseInfo current() const;
 
-    /** 解析指定授权文件 */
+    /** 解析指定授权文件（含机器码绑定校验，即“这张授权能不能在这台机器上用”） */
     LicenseInfo loadFromFile(const QString &path) const;
+
+    /**
+     * 解析授权文件，可选择是否校验机器码绑定。
+     *
+     * checkMachine = false 供签发侧审计使用：客户机器码必然与自己的不同，
+     * 但仍要验签、仍要算到期，才能分出“该续费”与“文件被改过”。
+     */
+    static LicenseInfo parseFile(const QString &path, bool checkMachine);
 
     /** 把外部授权文件安装到默认路径，成功返回 true */
     bool installFrom(const QString &srcPath, QString *error = nullptr) const;
+
+    /** 状态名（ASCII，给脚本 grep 用） */
+    static QString stateName(LicenseState state);
+
+    /** 剩余天数的人话表述：剩 12 天 / 今日到期 / 已过期 3 天 / 永久有效 */
+    static QString expiryText(const LicenseInfo &info);
+
+    /**
+     * 机器码归一化：去空白、转大写、缺连字符的 32 位十六进制补齐分组。
+     * 签发与验签都经过它，客户把机器码抄成一行或漏掉横杠也不会白跑一趟。
+     */
+    static QString normalizeMachineCode(const QString &raw);
+
+    /**
+     * 机器码是否长得像我们自己生成的码：32 位十六进制、按 4 位分组（共 39 字符）。
+     * 签发前拦一道——机器码抄错一个字符，客户装上去只会看到「与本机不匹配」，
+     * 而双方都会以为是对方的问题。
+     */
+    static bool machineCodeLooksValid(const QString &raw);
+
+    /**
+     * 写出一份授权文件（签名、JSON 结构都在这里，签发工具不再自己拼）。
+     * signatureBase64 非空时回传签名，供批量交付单记录。
+     */
+    static bool writeLicenseFile(const QString &path, const QString &machine,
+                                 const QString &licensee, const QString &edition,
+                                 const QDate &issued, const QDate &expire,
+                                 QString *signatureBase64 = nullptr,
+                                 QString *error = nullptr);
 
     /**
      * 规范化签名串：machine|licensee|edition|issued|expire

@@ -1,5 +1,6 @@
 #include "app/ReportBuilder.h"
 #include "app/StressView.h"
+#include "core/LicenseBatch.h"
 #include "core/LicenseManager.h"
 #include "core/ProjectFile.h"
 #include "core/SolverFactory.h"
@@ -24,8 +25,9 @@
 /**
  * qgselftest：不依赖鼠标的冒烟自检。
  *
- * 覆盖流程里最容易悄悄坏掉、又最难靠肉眼确认的四段：
- *   STL 解析（ASCII + 二进制） / 求解 / 结论页导出 / 工程文件往返 / 授权验签
+ * 覆盖流程里最容易悄悄坏掉、又最难靠肉眼确认的五段：
+ *   STL 解析（ASCII + 二进制） / 求解 / 结论页导出 / 工程文件往返 /
+ *   授权（验签 + 到期判定 + 批量签发）
  *
  * 用法：qgselftest.exe [--out <目录>]   退出码 0 = 全过
  */
@@ -427,6 +429,105 @@ int main(int argc, char *argv[])
     check(!LicenseManager::verifySignature(tampered, signature.toLatin1()),
           QStringLiteral("license-tamper"),
           QStringLiteral("篡改规范化串被拒"));
+
+    // ---- 6. 授权：到期判定与批量签发 ----
+    const QDate  today     = QDate::currentDate();
+    const QString ownMachine = LicenseManager::machineCode();
+    const QString fakeMachine = QStringLiteral("3F1B-92C4-7E10-AB35-6612-0D8C-4F5E-2299");
+
+    // 客户经常把机器码抄成一行、还带小写；归一化必须把它们认成同一个码，
+    // 否则签出去的授权客户装上去只会看到“与本机不匹配”
+    const QString written = LicenseManager::normalizeMachineCode(
+        QStringLiteral("3f1b92c47e10ab3566120d8c4f5e2299"));
+    check(written == fakeMachine && LicenseManager::machineCodeLooksValid(written)
+              && !LicenseManager::machineCodeLooksValid(QStringLiteral("3F1B-92C4-7E10")),
+          QStringLiteral("license-normalize"),
+          QStringLiteral("%1 · 短码被拒").arg(written));
+
+    const QString licenseDir  = QDir(outDir).filePath(QStringLiteral("issued"));
+    const QString expiringPath = QDir(licenseDir).filePath(QStringLiteral("self-expiring.qglic"));
+    const QString expiredPath  = QDir(licenseDir).filePath(QStringLiteral("self-expired.qglic"));
+    QDir().mkpath(licenseDir);
+    LicenseManager::writeLicenseFile(expiringPath, ownMachine, QStringLiteral("自检客户"),
+                                     QStringLiteral("pro"), today, today.addDays(10));
+    LicenseManager::writeLicenseFile(expiredPath, ownMachine, QStringLiteral("自检客户"),
+                                     QStringLiteral("pro"), today.addDays(-30), today.addDays(-3));
+
+    const LicenseInfo expiring = LicenseManager::parseFile(expiringPath, true);
+    check(expiring.valid && expiring.daysLeft == 10 && expiring.expiringSoon(),
+          QStringLiteral("license-expiry-window"),
+          QStringLiteral("剩 %1 天 · %2").arg(expiring.daysLeft).arg(expiring.message));
+
+    // 过期必须盖过“机器匹配”：否则过期一个月的老客户依旧能用
+    const LicenseInfo overdue = LicenseManager::parseFile(expiredPath, true);
+    check(!overdue.valid && overdue.state == LicenseState::Expired && overdue.daysLeft == -3,
+          QStringLiteral("license-expired-state"),
+          QStringLiteral("STATE=%1 · %2")
+              .arg(LicenseManager::stateName(overdue.state), overdue.message));
+
+    // 审计他机授权：跳过机器绑定才能看到到期日，但签名仍然要验
+    const QString foreignPath = QDir(licenseDir).filePath(QStringLiteral("self-foreign.qglic"));
+    LicenseManager::writeLicenseFile(foreignPath, fakeMachine, QStringLiteral("客户机器"),
+                                     QStringLiteral("pro"), today, today.addDays(200));
+    const LicenseInfo onOtherMachine = LicenseManager::parseFile(foreignPath, true);
+    const LicenseInfo asAudited      = LicenseManager::parseFile(foreignPath, false);
+    check(onOtherMachine.state == LicenseState::ForeignMachine
+              && onOtherMachine.signatureChecked && asAudited.valid
+              && asAudited.boundMachine == fakeMachine,
+          QStringLiteral("license-audit-foreign"),
+          QStringLiteral("本机 %1 · 审计 %2")
+              .arg(LicenseManager::stateName(onOtherMachine.state),
+                   LicenseManager::stateName(asAudited.state)));
+
+    // 台账：表头 + 注释 + 一行连写小写机器码 + 一行带逗号的公司名 + 一行抄错的码
+    const QByteArray ledger = QStringLiteral(
+                                  "# 自检台账\n"
+                                  "machine,licensee,edition,days,expire\n"
+                                  "3f1b92c47e10ab3566120d8c4f5e2299,某某机械厂,pro,365,\n"
+                                  "A20A-7BF9-1FA0-0DB1-C5C8-302C-B3D8-A600,\"某某传动, 二分厂\",pro,,2027-06-30\n"
+                                  "ZZZZ-0000,机器码抄错了,pro,30,\n")
+                                  .toUtf8();
+
+    QStringList              rowErrors;
+    const QVector<BatchOrder> orders = LicenseBatch::parseLedger(ledger, &rowErrors);
+    check(orders.size() == 2 && rowErrors.size() == 1
+              && orders.value(1).licensee == QStringLiteral("某某传动, 二分厂"),
+          QStringLiteral("license-batch-ledger"),
+          QStringLiteral("可用 %1 行 · 拒 %2 行 · %3")
+              .arg(orders.size())
+              .arg(rowErrors.size())
+              .arg(rowErrors.value(0)));
+
+    const QVector<BatchResult> batch = LicenseBatch::issueAll(orders, licenseDir, false, nullptr);
+    int    writtenCount = 0;
+    for (const BatchResult &result : batch) {
+        if (result.ok() && QFileInfo::exists(result.file))
+            ++writtenCount;
+    }
+    const QString manifestPath = QDir(licenseDir).filePath(QStringLiteral("manifest.csv"));
+    int           manifestRows = -1;
+    bool          manifestBom  = false;
+    {
+        QFile manifest(manifestPath);
+        if (manifest.open(QIODevice::ReadOnly)) {
+            const QByteArray bytes = manifest.readAll();
+            manifest.close();
+            manifestRows = bytes.count('\n') - 1;   // 减表头
+            manifestBom  = bytes.startsWith("\xEF\xBB\xBF");
+        }
+    }
+    check(writtenCount == 2 && manifestRows == 2 && manifestBom,
+          QStringLiteral("license-batch-issue"),
+          QStringLiteral("写出 %1 份 · 交付单 %2 行 · BOM %3")
+              .arg(writtenCount)
+              .arg(manifestRows)
+              .arg(manifestBom ? QStringLiteral("有") : QStringLiteral("无")));
+
+    // dry-run 一旦落了盘就不叫试跑：客户会收到两份不同到期日的授权
+    const QString dryDir = QDir(outDir).filePath(QStringLiteral("issued-dry"));
+    LicenseBatch::issueAll(orders, dryDir, true, nullptr);
+    check(!QDir(dryDir).exists(), QStringLiteral("license-batch-dry-run"),
+          QStringLiteral("dry-run 未建目录、未写文件"));
 
     // ---- 汇总 ----
     g_out << Qt::endl

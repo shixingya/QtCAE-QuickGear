@@ -9,6 +9,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QClipboard>
 #include <QCloseEvent>
 #include <QCoreApplication>
 #include <QDateTime>
@@ -37,6 +38,7 @@
 #include <QStatusBar>
 #include <QThread>
 #include <QTime>
+#include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -97,9 +99,17 @@ MainWindow::MainWindow(QWidget *parent)
     logLine(QStringLiteral("启动完成 · 后端 %1")
                 .arg(m_backend ? m_backend->displayName() : QStringLiteral("未配置后端")));
     logLine(QStringLiteral("本机机器码 %1").arg(LicenseManager::machineCode()));
+    if (m_licenseInfo.expire.isValid()) {
+        logLine(QStringLiteral("授权有效期至 %1 · %2")
+                    .arg(m_licenseInfo.expire.toString(Qt::ISODate),
+                         LicenseManager::expiryText(m_licenseInfo)));
+    }
     logLine(QStringLiteral("工作目录 %1")
                 .arg(QDir::toNativeSeparators(QStandardPaths::writableLocation(
                     QStandardPaths::AppDataLocation))));
+
+    // 等窗口画出来再弹，否则提醒框会挂在主窗口前面一秒然后自己缩回去
+    QTimer::singleShot(800, this, &MainWindow::remindLicenseExpiry);
 }
 
 MainWindow::~MainWindow()
@@ -322,15 +332,92 @@ void MainWindow::updateWindowTitle()
 
 void MainWindow::refreshLicenseBadge()
 {
-    const LicenseInfo info = m_license.current();
-    if (info.valid) {
-        m_licenseLabel->setText(QStringLiteral("授权：已激活（%1）").arg(info.edition));
-        m_licenseLabel->setStyleSheet(QStringLiteral("color:#059669;"));
-    } else {
+    m_licenseInfo = m_license.current();
+    const LicenseInfo &info = m_licenseInfo;
+
+    // 徽标分四级：正常 / 快到期 / 已过期 / 压根不能用。
+    // 快到期与已过期必须能一眼分开——前者是续费窗口，后者是刀已经落下来了。
+    switch (info.state) {
+    case LicenseState::Valid:
+        if (info.expiringSoon()) {
+            m_licenseLabel->setText(QStringLiteral("授权：%1 · %2")
+                                        .arg(info.edition, LicenseManager::expiryText(info)));
+            m_licenseLabel->setStyleSheet(QStringLiteral("color:#B4692F;"));
+        } else {
+            m_licenseLabel->setText(QStringLiteral("授权：已激活（%1）").arg(info.edition));
+            m_licenseLabel->setStyleSheet(QStringLiteral("color:#059669;"));
+        }
+        break;
+    case LicenseState::Expired:
+        m_licenseLabel->setText(QStringLiteral("授权：已过期"));
+        m_licenseLabel->setStyleSheet(QStringLiteral("color:#DC2626;"));
+        break;
+    case LicenseState::ForeignMachine:
+        m_licenseLabel->setText(QStringLiteral("授权：与本机不匹配"));
+        m_licenseLabel->setStyleSheet(QStringLiteral("color:#DC2626;"));
+        break;
+    case LicenseState::BadSignature:
+        m_licenseLabel->setText(QStringLiteral("授权：文件无效"));
+        m_licenseLabel->setStyleSheet(QStringLiteral("color:#DC2626;"));
+        break;
+    case LicenseState::Unreadable:
+    case LicenseState::Missing:
         m_licenseLabel->setText(QStringLiteral("授权：未激活（试用版）"));
         m_licenseLabel->setStyleSheet(QStringLiteral("color:#B4692F;"));
+        break;
     }
-    m_licenseLabel->setToolTip(info.message);
+
+    QString tip = info.message;
+    if (info.expire.isValid())
+        tip += QStringLiteral("\n有效期至 %1（%2）")
+                   .arg(info.expire.toString(Qt::ISODate), LicenseManager::expiryText(info));
+    m_licenseLabel->setToolTip(tip);
+}
+
+/**
+ * 启动时的到期提醒。
+ *
+ * 只在“已过期”与“剩 7 天内”弹。剩 30 天那种靠状态栏徽标变橙就够了，
+ * 天天弹窗只会让用户学会无脑点掉，真到期那天也不会看。
+ */
+void MainWindow::remindLicenseExpiry()
+{
+    const LicenseInfo &info = m_licenseInfo;
+
+    const bool expired = info.state == LicenseState::Expired;
+    const bool lastWeek = info.state == LicenseState::Valid && info.expire.isValid()
+                          && info.daysLeft <= 7;
+    if (!expired && !lastWeek)
+        return;
+
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Warning);
+    box.setWindowTitle(QStringLiteral("授权到期提醒"));
+
+    if (expired) {
+        box.setText(QStringLiteral("授权已于 %1 到期（%2）。")
+                        .arg(info.expire.toString(Qt::ISODate), LicenseManager::expiryText(info)));
+        box.setInformativeText(
+            QStringLiteral("求解与导出仍可用，但云图与结论页会带「未授权试用」水印。\n"
+                           "续期只需两件事：把机器码发给作者，收到新的 .qglic 后在"
+                           "「授权 → 激活 / 查看机器码…」里导入。"));
+    } else {
+        box.setText(QStringLiteral("授权将于 %1 到期（%2）。")
+                        .arg(info.expire.toString(Qt::ISODate), LicenseManager::expiryText(info)));
+        box.setInformativeText(
+            QStringLiteral("现在续期还来得及，不影响当前使用。\n"
+                           "把机器码发给作者即可，收到新的 .qglic 后导入生效。"));
+    }
+
+    QPushButton *copyButton =
+        box.addButton(QStringLiteral("复制机器码"), QMessageBox::AcceptRole);
+    box.addButton(QStringLiteral("知道了"), QMessageBox::RejectRole);
+    box.exec();
+
+    if (box.clickedButton() == copyButton) {
+        QApplication::clipboard()->setText(LicenseManager::machineCode());
+        logLine(QStringLiteral("机器码已复制到剪贴板：%1").arg(LicenseManager::machineCode()));
+    }
 }
 
 void MainWindow::refreshActions()
