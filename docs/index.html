@@ -1,0 +1,1263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f8fafc">
+<title>QtCAE-QuickGear | AI 辅助齿轮快速 CAE 仿真</title>
+<meta name="description" content="QtCAE-QuickGear 是基于 Qt + C++ 的轻量化齿轮 CAE 仿真工具，集成 AI 辅助网格生成。本页为网页版预览演示，高性能完整求解在 Qt 本地客户端。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='%231e3a5f'/%3E%3Ccircle cx='12' cy='12' r='3' fill='%23f8fafc'/%3E%3C/svg%3E">
+<style>
+/* ============================================================
+   设计基调：Swiss / Minimalism
+   浅色工程底 + 深色 3D 视口，低饱和、无花哨动效
+   色板：primary #1E3A5F / border #E4E7EB / bg #F8FAFC
+   ============================================================ */
+:root{
+  --primary:#1E3A5F;
+  --primary-600:#274c78;
+  --secondary:#2563EB;
+  --accent:#059669;
+  --bg:#F8FAFC;
+  --card:#FFFFFF;
+  --fg:#0F172A;
+  --muted:#F1F3F5;
+  --muted-fg:#475569;
+  --border:#E4E7EB;
+  --danger:#B42318;
+  --viewport:#0E151C;
+  --mono:ui-monospace,SFMono-Regular,"Cascadia Mono",Consolas,"Courier New",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--bg);color:var(--fg);
+  font-family:var(--sans);font-size:14px;line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--primary);text-decoration:none}
+a:hover{text-decoration:underline}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px;border-radius:2px}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+
+/* ---------- 顶部 ---------- */
+.site-header{
+  background:var(--card);border-bottom:1px solid var(--border);
+  position:sticky;top:0;z-index:20;
+}
+.header-inner{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:72px;padding-top:12px;padding-bottom:12px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.brand-mark{width:30px;height:30px;flex:none;fill:none;stroke:var(--primary);stroke-width:1.6}
+.brand-text h1{margin:0;font-size:17px;line-height:1.3;letter-spacing:.2px;font-weight:600}
+.brand-sub{margin:2px 0 0;font-size:12.5px;color:var(--muted-fg);line-height:1.4}
+.header-actions{display:flex;align-items:center;gap:10px}
+.tag{
+  font-family:var(--mono);font-size:11px;letter-spacing:.4px;
+  color:var(--muted-fg);border:1px solid var(--border);border-radius:3px;
+  padding:3px 7px;background:var(--muted);white-space:nowrap;
+}
+
+/* ---------- 按钮 ---------- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  min-height:36px;padding:0 14px;border-radius:4px;border:1px solid transparent;
+  font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;
+  transition:background-color .18s,border-color .18s,color .18s;
+  text-decoration:none!important;white-space:nowrap;
+}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-600)}
+.btn-ghost{background:var(--card);color:var(--fg);border-color:var(--border)}
+.btn-ghost:hover{background:var(--muted);border-color:#cfd6de}
+.btn:disabled{opacity:.48;cursor:not-allowed}
+.btn-block{width:100%;min-height:44px;font-size:13.5px}
+
+/* ---------- 布局 ---------- */
+.layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.12fr);gap:20px;padding-top:24px;padding-bottom:8px;align-items:start}
+.col{display:flex;flex-direction:column;gap:20px;min-width:0}
+.card{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:20px}
+.card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.card h2{margin:0;font-size:13px;font-weight:600;letter-spacing:.6px;color:var(--muted-fg);text-transform:uppercase}
+.card p{margin:0 0 10px;color:var(--muted-fg);font-size:13.5px}
+.card p:last-child{margin-bottom:0}
+.card strong{color:var(--fg);font-weight:600}
+
+/* ---------- 简介 ---------- */
+.lead{font-size:14.5px!important;color:var(--fg)!important;line-height:1.7}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin-top:14px;padding-top:14px;border-top:1px dashed var(--border)}
+.kv dt{font-family:var(--mono);font-size:11.5px;color:#8a97a6;letter-spacing:.3px;padding-top:2px}
+.kv dd{margin:0;font-size:13px;color:var(--fg)}
+
+/* ---------- 开源 / 闭源 ---------- */
+.split{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.panel{border:1px solid var(--border);border-radius:4px;padding:12px 14px;background:var(--bg)}
+.panel.open{border-left:3px solid var(--accent)}
+.panel.closed{border-left:3px solid var(--primary)}
+.panel h3{margin:0 0 8px;font-size:12.5px;font-weight:600;letter-spacing:.3px;display:flex;align-items:center;gap:6px}
+.panel.open h3{color:var(--accent)}
+.panel.closed h3{color:var(--primary)}
+.panel ul{margin:0;padding-left:16px;color:var(--muted-fg);font-size:12.5px;line-height:1.7}
+.panel li::marker{color:#c2cad3}
+
+/* ---------- 试用额度 ---------- */
+.device-row{display:flex;align-items:center;gap:8px;background:var(--muted);border:1px solid var(--border);border-radius:4px;padding:8px 10px;margin-bottom:14px}
+.device-row .label{font-size:11.5px;color:#8a97a6;font-family:var(--mono);flex:none}
+.device-code{font-family:var(--mono);font-size:12px;letter-spacing:.5px;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.quota-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:8px}
+.quota-num{font-family:var(--mono);font-size:22px;font-weight:600;color:var(--primary);line-height:1}
+.quota-num i{font-style:normal;font-size:12.5px;color:#8a97a6;font-weight:400}
+.quota-note{font-size:12px;color:#8a97a6}
+.meter{display:flex;gap:4px;margin-bottom:12px}
+.meter span{flex:1;height:6px;border-radius:1px;background:#e6eaf0}
+.meter span.used{background:var(--primary)}
+.meter span.done{background:#c3cdd9}
+.hint{font-size:12px;color:#8a97a6;margin-top:10px!important;line-height:1.6}
+
+/* ---------- 3D 预览 ---------- */
+.viewport-card{padding:0;overflow:hidden}
+.viewport-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border)}
+.viewport-head h2{margin:0}
+.status{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11.5px;color:var(--muted-fg)}
+.status .dot{width:6px;height:6px;border-radius:50%;background:#b7c0cb}
+.status.live .dot{background:var(--accent)}
+.status.busy .dot{background:#C77700}
+.stage{position:relative;height:420px;background:
+  radial-gradient(120% 90% at 50% 0%,#1a2530 0%,var(--viewport) 70%);}
+#canvasHost{position:absolute;inset:0;touch-action:none}
+#canvasHost canvas{display:block;width:100%;height:100%}
+.stage-hint{
+  position:absolute;left:14px;bottom:12px;font-family:var(--mono);font-size:11px;
+  color:#7d8b99;pointer-events:none;letter-spacing:.3px;
+}
+.stage-loading{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  text-align:center;color:#8b98a6;font-size:12.5px;padding:24px;line-height:1.8;
+}
+.stage-loading[hidden]{display:none}
+/* 云图图例 */
+.legend{display:flex;align-items:center;gap:12px;padding:10px 20px;border-top:1px solid var(--border);background:var(--card)}
+.legend-bar{flex:1;height:8px;border-radius:1px;background:linear-gradient(90deg,#2B4C7E 0%,#1F6E8C 22%,#2E8B57 45%,#C9B43A 68%,#D1773A 85%,#B7352F 100%)}
+.legend-ticks{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;color:#8a97a6;margin-top:4px}
+.legend-title{font-size:11px;color:#8a97a6;font-family:var(--mono);white-space:nowrap}
+
+/* ---------- 参数与结果 ---------- */
+.param-block{padding:16px 20px 18px;border-top:1px solid var(--border)}
+.param-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:16px}
+.field{display:block}
+.field .f-top{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:var(--muted-fg);margin-bottom:6px}
+.field .f-val{font-family:var(--mono);font-size:12.5px;color:var(--fg);font-weight:600}
+input[type=range]{
+  -webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:2px;
+  background:#e6eaf0;outline-offset:6px;cursor:pointer;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:14px;height:14px;border-radius:50%;
+  background:var(--card);border:2px solid var(--primary);cursor:pointer;
+  transition:border-color .18s,background-color .18s;
+}
+input[type=range]::-moz-range-thumb{
+  width:12px;height:12px;border-radius:50%;background:var(--card);
+  border:2px solid var(--primary);cursor:pointer;
+}
+input[type=range]:hover::-webkit-slider-thumb{background:#eef3f8}
+.btn-run{display:flex;gap:10px;align-items:center}
+.progress{height:4px;background:#e6eaf0;border-radius:2px;overflow:hidden;margin-top:12px}
+.progress[hidden]{display:none}
+.progress > i{display:block;height:100%;width:0;background:var(--primary);transition:width .12s linear}
+.result-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:16px;padding-top:16px;border-top:1px dashed var(--border)}
+.result-grid div{min-width:0}
+.result-grid .k{display:block;font-size:11px;color:#8a97a6;margin-bottom:2px;white-space:nowrap}
+.result-grid b{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--fg)}
+.result-grid i{font-style:normal;font-size:11px;color:#8a97a6;margin-left:3px}
+
+/* ---------- 底部 ---------- */
+.site-footer{border-top:1px solid var(--border);background:var(--card);margin-top:32px;padding:24px 0 32px}
+.footer-top{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.footer-top p{margin:0;font-size:12.5px;color:var(--muted-fg);max-width:640px;line-height:1.75}
+.footer-links{display:flex;gap:16px;font-size:12.5px;flex-wrap:wrap}
+.disclaimer{margin-top:14px;padding-top:14px;border-top:1px dashed var(--border);font-size:11.5px;color:#8a97a6;line-height:1.7}
+
+/* ---------- 弹窗 ---------- */
+.modal{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;padding:20px}
+.modal[hidden]{display:none}
+.modal-mask{position:absolute;inset:0;background:rgba(15,23,42,.46)}
+.modal-box{
+  position:relative;background:var(--card);border:1px solid var(--border);border-radius:8px;
+  width:100%;max-width:480px;padding:24px;box-shadow:0 12px 40px rgba(15,23,42,.18);
+}
+.modal-box h3{margin:0 0 8px;font-size:16px;font-weight:600}
+.modal-box p{margin:0 0 12px;font-size:13px;color:var(--muted-fg);line-height:1.7}
+.code-box{display:flex;gap:8px;align-items:stretch;background:var(--muted);border:1px solid var(--border);border-radius:4px;padding:10px;margin:12px 0}
+.code-box code{
+  font-family:var(--mono);font-size:13px;letter-spacing:.8px;color:var(--fg);
+  flex:1;min-width:0;word-break:break-all;align-self:center;line-height:1.5;
+}
+.modal-note{font-size:11.5px!important;color:#8a97a6!important;margin:0!important}
+.modal-foot{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:18px;padding-top:16px;border-top:1px solid var(--border)}
+
+/* ---------- 响应式 ---------- */
+@media (max-width:900px){
+  .layout{grid-template-columns:1fr;gap:16px}
+  .col-reverse-mobile{order:-1}
+  .stage{height:320px}
+  .header-inner{min-height:auto}
+  .brand-sub{font-size:11.5px}
+  .result-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+}
+@media (max-width:520px){
+  .wrap{padding:0 16px}
+  .split{grid-template-columns:1fr}
+  .param-grid{grid-template-columns:1fr;gap:12px}
+  .header-actions{width:100%;justify-content:space-between}
+  .legend{padding:10px 16px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition:none!important;animation:none!important}
+}
+</style>
+</head>
+<body>
+
+<!-- ============ 顶部标题 ============ -->
+<header class="site-header">
+  <div class="wrap header-inner">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="3.2"/>
+        <circle cx="12" cy="12" r="7.4" stroke-dasharray="2.6 2.2"/>
+      </svg>
+      <div class="brand-text">
+        <h1>QtCAE-QuickGear</h1>
+        <p class="brand-sub">AI 辅助齿轮快速 CAE 仿真 | Qt Native 高性能仿真工具</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span class="tag">v0.1 · WEB DEMO</span>
+      <a class="btn btn-ghost js-repo" href="#" target="_blank" rel="noopener noreferrer">GitHub 仓库</a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap layout">
+  <!-- ============ 左列：介绍 / 开源闭源 / 试用额度 ============ -->
+  <div class="col">
+    <section class="card">
+      <div class="card-head"><h2>项目简介</h2></div>
+      <p class="lead">
+        <strong>QtCAE-QuickGear</strong> 是一套面向齿轮传动的轻量化 CAE 仿真工具：C++ / Qt 原生实现，
+        搭配 AI 辅助网格生成，对中小模数齿轮做快速应力与变形评估，支持 STL 几何导入。
+      </p>
+      <p>
+        本仓库为<strong>开源壳工程</strong>：包含演示网页、Qt 基础界面壳与交互框架。
+        核心求解逻辑<strong>不开源</strong>，以加密静态库形式交付。
+      </p>
+      <p>
+        因此本页面只是<strong>轻量预览 Demo</strong>：3D 视图与云图为演示效果，
+        用来快速感受工具形态，不承担高精度求解职责。
+      </p>
+      <dl class="kv">
+        <dt>技术栈</dt><dd>C++17 / Qt 6 / OpenGL · AI 辅助网格</dd>
+        <dt>适用对象</dt><dd>中小零部件工程师、机械加工厂，需要快速算一轮齿轮应力</dd>
+        <dt>交付形态</dt><dd>Qt 本地客户端（机器码绑定激活）+ 开源演示页</dd>
+      </dl>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>开源 / 闭源边界</h2></div>
+      <div class="split">
+        <div class="panel open">
+          <h3>开源部分</h3>
+          <ul>
+            <li>演示网页（本页源码）</li>
+            <li>Qt 基础 UI 壳工程</li>
+            <li>界面交互框架与数据模型</li>
+          </ul>
+        </div>
+        <div class="panel closed">
+          <h3>闭源部分</h3>
+          <ul>
+            <li>核心仿真求解器</li>
+            <li>AI 网格生成模块</li>
+            <li>加密静态库，不以源码形式公开</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="trialCard">
+      <div class="card-head">
+        <h2>试用额度</h2>
+        <span class="tag" id="quotaTag">加载中</span>
+      </div>
+      <div class="device-row">
+        <span class="label">DEVICE</span>
+        <span class="device-code" id="deviceCodeInline">识别设备中…</span>
+      </div>
+      <div class="quota-top">
+        <span class="quota-num"><span id="quotaLeft">--</span><i> / 10 次</i></span>
+        <span class="quota-note">今日剩余</span>
+      </div>
+      <div class="meter" id="meter" aria-hidden="true"></div>
+      <p class="hint">
+        单设备每日最多 10 次预览试用。次数以浏览器指纹作为设备标识，记录在本机
+        <code>localStorage</code>，次日 00:00 自动重置。
+      </p>
+      <button class="btn btn-ghost btn-block" id="showCodeBtn" style="margin-top:12px">查看 / 复制设备码</button>
+    </section>
+  </div>
+
+  <!-- ============ 右列：3D 预览 ============ -->
+  <div class="col col-reverse-mobile">
+    <section class="card viewport-card">
+      <div class="viewport-head">
+        <h2>应力云图预览</h2>
+        <span class="status" id="status"><span class="dot"></span><span id="statusText">未求解</span></span>
+      </div>
+
+      <div class="stage">
+        <div id="canvasHost" role="img" aria-label="齿轮副三维应力云图预览，可拖拽旋转、滚轮缩放"></div>
+        <div class="stage-loading" id="stageLoading">正在加载 WebGL 渲染器…<br><span style="font-size:11.5px">需要联网加载 three.js CDN</span></div>
+        <div class="stage-hint">拖拽旋转 · 滚轮缩放 · 双指手势</div>
+      </div>
+
+      <div class="legend" aria-hidden="true">
+        <span class="legend-title">σv / MPa</span>
+        <div style="flex:1;min-width:0">
+          <div class="legend-bar"></div>
+          <div class="legend-ticks"><span>0</span><span>80</span><span>160</span><span>240</span><span>320</span></div>
+        </div>
+      </div>
+
+      <div class="param-block">
+        <div class="param-grid">
+          <label class="field">
+            <span class="f-top"><span>齿数 z</span><span class="f-val" id="valZ">24</span></span>
+            <input type="range" id="inZ" min="14" max="36" step="2" value="24">
+          </label>
+          <label class="field">
+            <span class="f-top"><span>模数 m</span><span class="f-val" id="valM">2.0</span></span>
+            <input type="range" id="inM" min="1" max="4" step="0.5" value="2">
+          </label>
+          <label class="field">
+            <span class="f-top"><span>输入扭矩 T (N·m)</span><span class="f-val" id="valT">80</span></span>
+            <input type="range" id="inT" min="20" max="200" step="5" value="80">
+          </label>
+        </div>
+
+        <div class="btn-run">
+          <button class="btn btn-primary btn-block" id="runBtn" disabled>运行预览仿真（消耗 1 次）</button>
+          <button class="btn btn-ghost" id="resetViewBtn" title="重置视角">重置视角</button>
+        </div>
+        <div class="progress" id="progress" hidden><i id="progressBar"></i></div>
+
+        <div class="result-grid">
+          <div><span class="k">峰值等效应力</span><b id="rSigma">--</b><i>MPa</i></div>
+          <div><span class="k">最大位移</span><b id="rDisp">--</b><i>μm</i></div>
+          <div><span class="k">网格单元</span><b id="rElems">--</b><i>个</i></div>
+          <div><span class="k">安全系数</span><b id="rSf">--</b><i>n</i></div>
+        </div>
+        <p class="hint">以上数值为网页端<strong>示意数据</strong>，由参数估算生成，不代表真实求解结果。</p>
+      </div>
+    </section>
+  </div>
+</main>
+
+<!-- ============ 底部 ============ -->
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="footer-top">
+      <p>
+        <strong>网页仅为演示预览。</strong>高性能完整仿真、AI 网格划分在 Qt 本地客户端中完成，
+        客户端支持机器码绑定激活；比例、云图与数值均为示意效果。
+      </p>
+      <div class="footer-links">
+        <a class="js-repo" href="#" target="_blank" rel="noopener noreferrer">GitHub 仓库 ↗</a>
+        <a href="https://github.com/shixingya/QtCAE-QuickGear/issues" target="_blank" rel="noopener noreferrer">问题反馈 ↗</a>
+      </div>
+    </div>
+    <p class="disclaimer">
+      免责声明：本工具面向工程快速估算场景，输出结果不构成设计验证或安全认证依据，最终设计须由具备资质的工程师复核。
+      网页端试用计数基于浏览器本地存储，仅用于演示引流，不具备服务端校验能力。
+    </p>
+  </div>
+</footer>
+
+<!-- ============ 次数耗尽弹窗 ============ -->
+<div class="modal" id="modal" hidden>
+  <div class="modal-mask" data-close></div>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <h3 id="modalTitle">今日试用次数已耗尽</h3>
+    <p>复制下方设备码，联系开发者获取 Qt 本地版激活授权。</p>
+    <div class="code-box">
+      <code id="machineCode">--</code>
+      <button class="btn btn-primary" id="copyBtn">一键复制</button>
+    </div>
+    <p class="modal-note">
+      激活以 Qt 客户端内显示的<b>机器码</b>为准；此处为浏览器设备码，可用于沟通与问题定位。
+      更换硬件或浏览器都可能导致设备码变化。
+    </p>
+    <div class="modal-foot">
+      <a class="js-repo" href="#" target="_blank" rel="noopener noreferrer">前往仓库</a>
+      <button class="btn btn-ghost" data-close>关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 说明：three.js 与 FingerprintJS 不使用静态 <script src>，
+     而是在下面的脚本里按多 CDN 顺序动态加载（jsdelivr → unpkg → npmmirror → esm.sh），
+     任一 CDN 不可达时自动切下一个，避免单一 CDN 拒绝连接时整页失效。 -->
+
+<script type="module">
+/* ============================================================
+   QtCAE-QuickGear 演示页前端逻辑（纯前端 / 无后端）
+   1) 试用额度：设备指纹 + localStorage + 每日 10 次 + 零点重置（不依赖外网资源）
+   2) 3D 预览：three.js 程序化生成齿轮副 + 示意应力云图（按需加载，失败不影响额度）
+   ============================================================ */
+
+/* ---------------- 全局配置 ---------------- */
+const CONFIG = {
+  repoUrl: 'https://github.com/shixingya/QtCAE-QuickGear',
+  dailyLimit: 10,
+  storageKey: 'qtcae-quickgear.trial.v1',
+  allowStressMpa: 320,          // 图例量程上限（示意）
+  materialAllow: 350,           // 安全系数计算用的许用应力（示意）
+  cdnTimeout: 6000,             // 单个 CDN 的加载超时，超时即切换下一个
+  // three.js 多 CDN 兜底（国内网络优先 npmmirror，其次海外源）
+  threeCdn: [
+    'https://registry.npmmirror.com/three/0.160.0/files/build/three.module.js',
+    'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js',
+    'https://unpkg.com/three@0.160.0/build/three.module.js',
+    'https://esm.sh/three@0.160.0'
+  ],
+  // 浏览器指纹库多 CDN 兜底（UMD，全局变量 FingerprintJS）
+  fpCdn: [
+    'https://registry.npmmirror.com/@fingerprintjs/fingerprintjs/3.4.2/files/dist/fp.min.js',
+    'https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3/dist/fp.min.js',
+    'https://unpkg.com/@fingerprintjs/fingerprintjs@3/dist/fp.min.js'
+  ]
+};
+
+/* 仓库链接统一注入 */
+document.querySelectorAll('.js-repo').forEach(el => { el.href = CONFIG.repoUrl; });
+
+/* ---------------- 外部库加载工具 ---------------- */
+/** 给加载 Promise 加超时，避免某个 CDN 挂死把页面卡住 */
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timeout: ' + label)), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); }
+    );
+  });
+}
+
+/** 按顺序尝试多个 CDN 加载 ES Module */
+async function importWithFallback(urls) {
+  let lastErr = null;
+  for (const url of urls) {
+    try {
+      return await withTimeout(import(/* webpackIgnore: true */ url), CONFIG.cdnTimeout, url);
+    } catch (e) {
+      lastErr = e;
+      console.warn('[cdn] 加载失败，尝试下一个：', url);
+    }
+  }
+  throw lastErr || new Error('所有 CDN 均不可用');
+}
+
+/** 按顺序尝试多个 CDN 加载普通脚本 */
+function loadScriptWithFallback(urls) {
+  return new Promise((resolve, reject) => {
+    let i = 0;
+    const next = () => {
+      if (i >= urls.length) return reject(new Error('inject-script-failed'));
+      const url = urls[i++];
+      const s = document.createElement('script');
+      let done = false;
+      const fail = () => {
+        if (done) return;
+        done = true;
+        s.remove();
+        next();
+      };
+      s.src = url;
+      s.async = true;
+      s.onload = () => { if (!done) { done = true; resolve(true); } };
+      s.onerror = fail;
+      setTimeout(fail, CONFIG.cdnTimeout);   // 超时也视为失败
+      document.head.appendChild(s);
+    };
+    next();
+  });
+}
+
+/** 确保指纹库就绪；全部 CDN 失败时返回 false，由本地降级方案接管 */
+async function ensureFingerprintLib() {
+  if (window.FingerprintJS) return true;
+  try {
+    await loadScriptWithFallback(CONFIG.fpCdn);
+    return !!window.FingerprintJS;
+  } catch (e) {
+    console.warn('[cdn] 指纹库加载失败，使用本地降级方案');
+    return false;
+  }
+}
+
+/* ============================================================
+   一、试用额度状态机
+   ============================================================ */
+const $ = (id) => document.getElementById(id);
+
+const quotaEls = {
+  left: $('quotaLeft'),
+  tag: $('quotaTag'),
+  meter: $('meter'),
+  inline: $('deviceCodeInline'),
+  modal: $('modal'),
+  machineCode: $('machineCode'),
+  copyBtn: $('copyBtn'),
+  showCodeBtn: $('showCodeBtn'),
+  runBtn: $('runBtn')
+};
+
+/** 运行时状态：指纹 / 日期 / 已用次数 */
+const trial = {
+  fp: '',              // 设备指纹（32 位 hex）
+  date: '',            // 计数所属日期 yyyy-mm-dd
+  used: 0,             // 当日已用次数
+  storageOK: true      // localStorage 是否可用
+};
+
+let memoryStore = null; // localStorage 不可用时的内存兜底
+
+/** 本地日期字符串，作为"当天"的判定依据 */
+function todayKey() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** 读取本地记录（localStorage 失败时降级到内存） */
+function loadRecord() {
+  try {
+    const raw = localStorage.getItem(CONFIG.storageKey);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    trial.storageOK = false;
+    return memoryStore;
+  }
+}
+
+/** 写入本地记录 */
+function saveRecord(rec) {
+  memoryStore = rec;
+  try {
+    localStorage.setItem(CONFIG.storageKey, JSON.stringify(rec));
+  } catch (e) {
+    trial.storageOK = false;
+  }
+}
+
+/** 跨天检测：日期变化则计数归零（含页面长时间挂起的场景） */
+function rolloverIfNeeded() {
+  const today = todayKey();
+  if (trial.date !== today) {
+    trial.date = today;
+    trial.used = 0;
+    persistTrial();
+    return true;
+  }
+  return false;
+}
+
+function persistTrial() {
+  saveRecord({ fp: trial.fp, date: trial.date, used: trial.used });
+}
+
+/** 把 32 位指纹格式化成易读机器码：XXXX-XXXX-... */
+function formatMachineCode(id) {
+  const hex = String(id).replace(/[^0-9a-z]/gi, '').toUpperCase();
+  return (hex.match(/.{1,4}/g) || [hex]).slice(0, 8).join('-');
+}
+
+/** 指纹库不可用时的降级方案（同样生成 32 位标识） */
+function fallbackFingerprint() {
+  const parts = [
+    navigator.userAgent,
+    navigator.language,
+    screen.width, screen.height, screen.colorDepth,
+    new Date().getTimezoneOffset(),
+    navigator.hardwareConcurrency || 0,
+    navigator.deviceMemory || 0
+  ].join('|');
+  // FNV-1a 32 位 + 简单扩散，拼成 32 位 hex
+  let h1 = 0x811c9dc5, h2 = 0x01000193;
+  for (let i = 0; i < parts.length; i++) {
+    h1 = (h1 ^ parts.charCodeAt(i)) * 16777619 >>> 0;
+    h2 = (h2 + parts.charCodeAt(i) * (i + 7)) >>> 0;
+  }
+  const seg = (n) => n.toString(16).padStart(8, '0');
+  return seg(h1) + seg(h2) + seg(h1 ^ h2) + seg((h1 + h2) >>> 0);
+}
+
+/** 初始化指纹，并合并本地记录 */
+async function initTrial() {
+  let rawId = '';
+  try {
+    await ensureFingerprintLib();
+    if (window.FingerprintJS && typeof window.FingerprintJS.load === 'function') {
+      const agent = await window.FingerprintJS.load();
+      const result = await agent.get();
+      rawId = result.visitorId || '';
+    }
+  } catch (e) {
+    console.warn('[fingerprint] 指纹库加载失败，使用本地降级方案', e);
+  }
+  if (!rawId) rawId = fallbackFingerprint();
+
+  trial.fp = formatMachineCode(rawId);
+  trial.date = todayKey();
+
+  const rec = loadRecord();
+  if (rec && rec.fp === trial.fp && rec.date === trial.date) {
+    trial.used = Math.min(Math.max(Number(rec.used) || 0, 0), CONFIG.dailyLimit);
+  } else {
+    // 新设备 / 跨天 / 记录损坏 → 从 0 开始
+    trial.used = 0;
+    persistTrial();
+  }
+  renderQuota();
+}
+
+/** 刷新额度相关 UI */
+function renderQuota() {
+  const left = Math.max(CONFIG.dailyLimit - trial.used, 0);
+  if (quotaEls.left) quotaEls.left.textContent = left;
+  if (quotaEls.inline) quotaEls.inline.textContent = trial.fp || '--';
+  if (quotaEls.machineCode) quotaEls.machineCode.textContent = trial.fp || '--';
+
+  if (quotaEls.meter) {
+    if (!quotaEls.meter.childElementCount) {
+      for (let i = 0; i < CONFIG.dailyLimit; i++) quotaEls.meter.appendChild(document.createElement('span'));
+    }
+    [...quotaEls.meter.children].forEach((bar, i) => {
+      bar.className = i < trial.used ? 'used' : (left === 0 ? 'done' : '');
+    });
+  }
+
+  if (quotaEls.tag) {
+    quotaEls.tag.textContent = left === 0 ? '额度已用完' : `剩余 ${left} 次`;
+  }
+  if (quotaEls.runBtn) {
+    quotaEls.runBtn.textContent = left === 0
+      ? '今日额度已用完 · 获取本地版授权'
+      : '运行预览仿真（消耗 1 次）';
+  }
+  if (!trial.storageOK) {
+    console.warn('[trial] localStorage 不可用，计数仅在当前页面内有效');
+  }
+}
+
+/** 打开设备码弹窗 */
+function openModal() {
+  quotaEls.machineCode.textContent = trial.fp || '识别失败，请刷新页面重试';
+  quotaEls.modal.hidden = false;
+  document.body.style.overflow = 'hidden';
+  quotaEls.copyBtn.focus();
+}
+function closeModal() {
+  quotaEls.modal.hidden = true;
+  document.body.style.overflow = '';
+}
+
+/** 复制设备码：优先 Clipboard API，失败降级 execCommand */
+async function copyMachineCode() {
+  const text = trial.fp;
+  if (!text) return;
+  let ok = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    ok = true;
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+    document.body.removeChild(ta);
+  }
+  const btn = quotaEls.copyBtn;
+  const old = btn.textContent;
+  btn.textContent = ok ? '已复制' : '复制失败，请手动选中';
+  btn.disabled = true;
+  setTimeout(() => { btn.textContent = old; btn.disabled = false; }, 1600);
+}
+
+/** 零点自动重置（跨天时刷新 UI） */
+function scheduleMidnightReset() {
+  const now = new Date();
+  const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 3);
+  setTimeout(() => {
+    if (rolloverIfNeeded()) renderQuota();
+    scheduleMidnightReset();
+  }, Math.max(next - now, 1000));
+}
+
+/* ============================================================
+   二、three.js 齿轮副与示意应力云图
+   ============================================================ */
+const state = {
+  z: 24,          // 大齿轮齿数
+  m: 2,           // 模数
+  T: 80,          // 输入扭矩 N·m
+  solved: false,
+  running: false
+};
+
+/* three.js 命名空间：CDN 加载完成后赋值（顶层不直接引用，避免加载失败连带打死额度逻辑） */
+let THREE = null;
+
+/* ---- 应力色标（低 → 高，低饱和工程配色） ---- */
+const RAMP = ['#2B4C7E', '#1F6E8C', '#2E8B57', '#C9B43A', '#D1773A', '#B7352F'];
+let rampColors = null;
+
+/** 取值 0~1 映射到色标上的颜色（带轻微分级，模拟等值线带），写入 target 避免频繁分配 */
+function rampColor(t, target) {
+  const stepped = Math.round(Math.min(Math.max(t, 0), 1) * 12) / 12;
+  const span = stepped * (rampColors.length - 1);
+  const i = Math.min(Math.floor(span), rampColors.length - 2);
+  const frac = span - i;
+  return target.copy(rampColors[i]).lerp(rampColors[i + 1], frac);
+}
+
+/** 生成齿轮平面轮廓（梯形齿 + 中心轴孔），单位与模数一致 */
+function buildGearShape(z, m) {
+  const rp = (m * z) / 2;         // 分度圆
+  const ra = rp + m;              // 齿顶圆
+  const rf = Math.max(rp - 1.25 * m, m * 1.2);  // 齿根圆
+  const step = (Math.PI * 2) / z;
+  const halfRoot = step * 0.34;   // 齿根半角
+  const halfTip = step * 0.17;    // 齿顶半角（齿侧收缩）
+  const p = (r, a) => new THREE.Vector2(Math.cos(a) * r, Math.sin(a) * r);
+  const shape = new THREE.Shape();
+  const flankSamples = 3;
+
+  for (let i = 0; i < z; i++) {
+    const c = i * step;
+    const r0 = p(rf, c - halfRoot);
+    if (i === 0) shape.moveTo(r0.x, r0.y); else shape.lineTo(r0.x, r0.y);
+
+    // 上升齿侧：齿根 → 齿顶
+    for (let s = 1; s <= flankSamples; s++) {
+      const t = s / flankSamples;
+      const r = rf + (ra - rf) * t;
+      const a = (c - halfRoot) + (halfRoot - halfTip) * t;
+      const pt = p(r, a);
+      shape.lineTo(pt.x, pt.y);
+    }
+    // 齿顶圆弧
+    const tipSamples = 2;
+    for (let s = 1; s <= tipSamples; s++) {
+      const a = (c - halfTip) + (halfTip * 2) * (s / tipSamples);
+      const pt = p(ra, a);
+      shape.lineTo(pt.x, pt.y);
+    }
+    // 下降齿侧：齿顶 → 齿根
+    for (let s = 1; s <= flankSamples; s++) {
+      const t = 1 - s / flankSamples;
+      const r = rf + (ra - rf) * t;
+      const a = (c + halfRoot) - (halfRoot - halfTip) * t;
+      const pt = p(r, a);
+      shape.lineTo(pt.x, pt.y);
+    }
+    // 齿根连接圆弧（到下一齿起点）
+    const rootSamples = 3;
+    for (let s = 1; s <= rootSamples; s++) {
+      const a = (c + halfRoot) + (step - halfRoot * 2) * (s / rootSamples);
+      const pt = p(rf, a);
+      shape.lineTo(pt.x, pt.y);
+    }
+  }
+  shape.closePath();
+
+  // 中心轴孔
+  const hole = new THREE.Path();
+  hole.absarc(0, 0, Math.max(rf * 0.3, m * 1.6), 0, Math.PI * 2, true);
+  shape.holes.push(hole);
+
+  return { shape, rp, ra, rf, width: m * 3.2 };
+}
+
+/** 把几何顶点按"到接触点的距离"着色，模拟接触区 + 齿根应力集中 */
+function paintStress(mesh, hotSpots, geometry) {
+  const pos = geometry.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const c = new THREE.Color();
+
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    let s = 0;
+    for (const spot of hotSpots) {
+      const d = Math.hypot(x - spot.x, y - spot.y);
+      s += spot.a * Math.exp(-(d * d) / (2 * spot.w * spot.w));
+    }
+    rampColor(s, c);
+    colors[i * 3] = c.r;
+    colors[i * 3 + 1] = c.g;
+    colors[i * 3 + 2] = c.b;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}
+
+/* ---- 场景对象 ---- */
+let renderer, scene, camera, controls, assembly, gearA, gearB, contactA, contactB, baseRadius = 1;
+let hostEl, loadingEl, statusEl, statusTextEl;
+
+function showStageError(html) {
+  if (!loadingEl) return;
+  loadingEl.hidden = false;
+  loadingEl.innerHTML = html;
+  setStatus('idle', '3D 不可用');
+}
+
+/**
+ * 极简轨道控制器（替代 three/addons/OrbitControls，少一个 CDN 依赖）
+ * 支持：拖拽旋转、滚轮缩放、双指捏合缩放
+ */
+function createOrbitControls(cam, dom, onChange) {
+  const target = new THREE.Vector3();
+  const offset = new THREE.Vector3();
+  const sph = new THREE.Spherical();
+  const pointers = new Map();
+  let minR = 1, maxR = 1e6, pinchDist = 0;
+  dom.style.cursor = 'grab';
+
+  function apply() {
+    sph.phi = Math.min(Math.PI - 0.18, Math.max(0.18, sph.phi));
+    sph.radius = Math.min(maxR, Math.max(minR, sph.radius));
+    offset.setFromSpherical(sph);
+    cam.position.copy(target).add(offset);
+    cam.lookAt(target);
+    if (onChange) onChange();
+  }
+  /** 以当前相机位置反推球坐标（重置视角后调用） */
+  function sync() {
+    offset.copy(cam.position).sub(target);
+    sph.setFromVector3(offset);
+  }
+  function pinchDistance() {
+    const pts = [...pointers.values()];
+    if (pts.length < 2) return 0;
+    return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+  }
+
+  dom.addEventListener('pointerdown', (e) => {
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try { dom.setPointerCapture(e.pointerId); } catch (err) { /* 忽略 */ }
+    dom.style.cursor = 'grabbing';
+    if (pointers.size === 2) pinchDist = pinchDistance();
+  });
+
+  dom.addEventListener('pointermove', (e) => {
+    const prev = pointers.get(e.pointerId);
+    if (!prev) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointers.size === 1) {
+      // 单指 / 鼠标拖拽：水平旋转方位角，垂直旋转俯仰角
+      sph.theta -= (e.clientX - prev.x) * 0.0062;
+      sph.phi -= (e.clientY - prev.y) * 0.0062;
+      apply();
+    } else if (pointers.size === 2) {
+      const d = pinchDistance();
+      if (pinchDist > 0 && d > 0) sph.radius *= pinchDist / d;
+      pinchDist = d;
+      apply();
+    }
+  });
+
+  const release = (e) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchDist = 0;
+    if (pointers.size === 0) dom.style.cursor = 'grab';
+  };
+  dom.addEventListener('pointerup', release);
+  dom.addEventListener('pointercancel', release);
+
+  dom.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    sph.radius *= 1 + Math.sign(e.deltaY) * 0.09;
+    apply();
+  }, { passive: false });
+
+  return { target, sync, apply, setLimits(nextMin, nextMax) { minR = nextMin; maxR = nextMax; } };
+}
+
+/**
+ * 初始化 3D 预览：先按多 CDN 顺序加载 three.js，
+ * 全部失败也只降级视口提示，不影响试用额度与页面其它交互。
+ */
+async function initViewer() {
+  hostEl = $('canvasHost');
+  loadingEl = $('stageLoading');
+  statusEl = $('status');
+  statusTextEl = $('statusText');
+  if (!hostEl) return;
+
+  try {
+    THREE = await importWithFallback(CONFIG.threeCdn);
+  } catch (e) {
+    console.error('[three] 所有 CDN 均不可用', e);
+    showStageError('3D 预览组件加载失败（three.js CDN 不可达）。<br>试用额度与其它功能不受影响，请检查网络后刷新重试。');
+    return;
+  }
+  rampColors = RAMP.map(hex => new THREE.Color().setStyle(hex));
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color('#0E151C');
+
+  camera = new THREE.PerspectiveCamera(35, 1, 0.1, 5000);
+  camera.position.set(0, -30, 60);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  hostEl.appendChild(renderer.domElement);
+
+  // 光照：一侧主光 + 一侧冷补光 + 环境半球光，突出金属体块
+  scene.add(new THREE.HemisphereLight(0xdce6f0, 0x141c24, 1.15));
+  const key = new THREE.DirectionalLight(0xffffff, 1.7);
+  key.position.set(60, -50, 90);
+  scene.add(key);
+  const fill = new THREE.DirectionalLight(0x8fa9c0, 0.55);
+  fill.position.set(-70, 45, -60);
+  scene.add(fill);
+  const rim = new THREE.DirectionalLight(0xffffff, 0.35);
+  rim.position.set(0, 80, -40);
+  scene.add(rim);
+
+  // 按需渲染：只在交互 / 重建时重绘，静态页面不跑 60fps 循环省电
+  controls = createOrbitControls(camera, renderer.domElement, renderFrame);
+
+  loadingEl.hidden = true;
+  rebuild();
+  resize();
+  renderFrame();
+}
+
+/** 重建齿轮副（参数变化时调用） */
+function rebuild() {
+  if (!scene) return;
+  if (assembly) {
+    scene.remove(assembly);
+    assembly.traverse(obj => {
+      if (obj.geometry) obj.geometry.dispose();
+      if (obj.material) obj.material.dispose();
+    });
+  }
+
+  assembly = new THREE.Group();
+  const zA = state.z;
+  const zB = Math.max(10, Math.round(zA / 2 / 2) * 2);  // 小齿轮，取偶数齿便于对齿
+  const mA = buildGearShape(zA, state.m);
+  const mB = buildGearShape(zB, state.m);
+
+  const matA = new THREE.MeshStandardMaterial({
+    color: 0x9aa5b1, metalness: 0.5, roughness: 0.45, vertexColors: true, flatShading: false
+  });
+  const matB = new THREE.MeshStandardMaterial({
+    color: 0x8d99a6, metalness: 0.5, roughness: 0.5, vertexColors: true, flatShading: false
+  });
+
+  gearA = new THREE.Mesh(extrude(mA), matA);
+  gearB = new THREE.Mesh(extrude(mB), matB);
+  // 未求解前使用纯金属灰（关闭顶点色需触发材质重编译）
+  [matA, matB].forEach(mat => {
+    mat.vertexColors = false;
+    mat.color.setStyle('#98a3ae');
+    mat.needsUpdate = true;
+  });
+
+  const gap = (mA.rp + mB.rp) * 0.5;
+  gearA.position.x = -gap;
+  gearB.position.x = gap;
+  gearB.rotation.z = Math.PI / zB;       // 让小齿轮的齿槽对准大齿轮轮齿
+
+  assembly.add(gearA, gearB);
+  scene.add(assembly);
+
+  // 接触点（各自局部坐标系）：大齿轮 +X 侧、小齿轮 -X 侧
+  contactA = { x: mA.rp * 0.96, y: 0 };
+  contactB = { x: -mB.rp * 0.96, y: 0 };
+  baseRadius = Math.max(mA.ra, mB.ra);
+
+  resetView();
+  setStatus('idle', '未求解');
+  clearResults();
+  state.solved = false;
+}
+
+/** 拉伸成实体，并沿 Z 居中 */
+function extrude(gearData) {
+  const geo = new THREE.ExtrudeGeometry(gearData.shape, {
+    depth: gearData.width,
+    bevelEnabled: true,
+    bevelThickness: state.m * 0.1,
+    bevelSize: state.m * 0.1,
+    bevelSegments: 2,
+    curveSegments: 10,
+    steps: 1
+  });
+  geo.translate(0, 0, -gearData.width / 2);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** 把视角对准整个齿轮副 */
+function resetView() {
+  if (!assembly) return;
+  const box = new THREE.Box3().setFromObject(assembly);
+  const sphere = box.getBoundingSphere(new THREE.Sphere());
+  const fov = camera.fov * Math.PI / 180;
+  const fit = sphere.radius / Math.sin(fov / 2) * 1.12;
+  const dir = new THREE.Vector3(0.32, -0.52, 0.79).normalize();
+  camera.position.copy(sphere.center).add(dir.multiplyScalar(fit));
+  camera.near = Math.max(fit / 100, 0.1);
+  camera.far = fit * 20;
+  camera.updateProjectionMatrix();
+  controls.target.copy(sphere.center);
+  controls.sync();
+  camera.lookAt(controls.target);
+}
+
+function resize() {
+  if (!renderer || !hostEl) return;
+  const w = hostEl.clientWidth || 1;
+  const h = hostEl.clientHeight || 1;
+  renderer.setSize(w, h, false);
+  const aspect = w / h;
+  camera.aspect = aspect;
+  // 竖屏 / 窄屏时放大垂直视场角，保证齿轮副完整入画
+  camera.fov = aspect < 1.05 ? Math.min(35 / aspect, 62) : 35;
+  camera.updateProjectionMatrix();
+  if (controls) controls.setLimits(baseRadius * 1.4, baseRadius * 14);
+  renderFrame();
+}
+
+function renderFrame() {
+  if (renderer && scene && camera) renderer.render(scene, camera);
+}
+
+function setStatus(kind, text) {
+  if (!statusEl) return;
+  statusEl.className = 'status' + (kind === 'idle' ? '' : ' ' + kind);
+  statusTextEl.textContent = text;
+}
+
+function clearResults() {
+  ['rSigma', 'rDisp', 'rElems', 'rSf'].forEach(id => { const el = $(id); if (el) el.textContent = '--'; });
+}
+
+/** 应用云图着色（仅演示：几何顶点距离场，不是真实求解） */
+function applyStress() {
+  if (!gearA || !gearB) return;
+  const m = state.m;
+  const zA = state.z;
+
+  // 大齿轮：主动轮，接触区为主热点，两侧相邻齿根为次热点
+  const hotA = [{ ...contactA, w: m * 2.6, a: 1.0 }];
+  const stepA = (Math.PI * 2) / zA;
+  [1, -1].forEach(sign => {
+    hotA.push({
+      x: Math.cos(sign * stepA) * (contactA.x * 0.72),
+      y: Math.sin(sign * stepA) * (contactA.x * 0.72),
+      w: m * 1.2,
+      a: 0.42
+    });
+  });
+  paintStress(gearA, hotA, gearA.geometry);
+  gearA.material.vertexColors = true;
+  gearA.material.color.setStyle('#ffffff');
+  gearA.material.needsUpdate = true;
+
+  // 小齿轮：从动轮，整体应力略低
+  paintStress(gearB, [{ ...contactB, w: m * 2.0, a: 0.82 }], gearB.geometry);
+  gearB.material.vertexColors = true;
+  gearB.material.color.setStyle('#ffffff');
+  gearB.material.needsUpdate = true;
+
+  renderFrame();
+  state.solved = true;
+}
+
+/** 示意结果：由齿数/模数/扭矩估算，仅用于展示 UI 形态 */
+function estimateResults() {
+  const { z, m, T } = state;
+  const sigma = 12 * T / Math.pow(m, 3) * Math.sqrt(24 / z);
+  const disp = sigma * 0.09;
+  const elems = Math.round(1.8e4 * Math.pow(z / 24, 1.15) * Math.pow(2 / m, 1.6));
+  const sf = CONFIG.materialAllow / sigma;
+  return {
+    sigma: Math.min(sigma, CONFIG.allowStressMpa * 1.6),
+    disp,
+    elems,
+    sf: Math.min(sf, 9.99)
+  };
+}
+
+function showResults() {
+  const r = estimateResults();
+  $('rSigma').textContent = r.sigma.toFixed(1);
+  $('rDisp').textContent = r.disp.toFixed(1);
+  $('rElems').textContent = r.elems.toLocaleString('en-US');
+  $('rSf').textContent = r.sf.toFixed(2);
+}
+
+/* ============================================================
+   三、运行预览仿真（消耗 1 次额度）
+   ============================================================ */
+const runBtn = $('runBtn');
+const progressEl = $('progress');
+const progressBar = $('progressBar');
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function runPreview() {
+  if (state.running) return;
+  if (!trial.fp) {
+    setStatus('busy', '设备识别中');
+    return;
+  }
+
+  rolloverIfNeeded();
+
+  // 额度已耗尽 → 直接弹窗引导获取本地版授权
+  if (trial.used >= CONFIG.dailyLimit) {
+    renderQuota();
+    openModal();
+    return;
+  }
+
+  // 扣减 1 次
+  trial.used += 1;
+  persistTrial();
+  renderQuota();
+
+  // 伪求解进度：给用户明确的"正在进行"反馈，不做夸张动画
+  state.running = true;
+  runBtn.disabled = true;
+  progressEl.hidden = false;
+  progressBar.style.width = '0%';
+  setStatus('busy', '求解中');
+
+  const steps = 14;
+  for (let i = 1; i <= steps; i++) {
+    await sleep(52);
+    progressBar.style.width = `${(i / steps) * 100}%`;
+  }
+
+  applyStress();
+  showResults();
+  state.running = false;
+  progressEl.hidden = true;
+  runBtn.disabled = false;
+  setStatus('live', '演示完成 · 示意解');
+
+  if (trial.used >= CONFIG.dailyLimit) {
+    renderQuota();
+    setTimeout(openModal, 420);   // 最后一次用完后立即引导
+  }
+}
+
+/* ============================================================
+   四、事件绑定与启动
+   ============================================================ */
+function bindEvents() {
+  // 试用额度
+  quotaEls.showCodeBtn.addEventListener('click', openModal);
+  quotaEls.copyBtn.addEventListener('click', copyMachineCode);
+  quotaEls.modal.addEventListener('click', (e) => {
+    if (e.target.hasAttribute('data-close')) closeModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !quotaEls.modal.hidden) closeModal();
+  });
+
+  // 回到前台时检查是否已跨天
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && rolloverIfNeeded()) renderQuota();
+  });
+
+  // 参数滑块
+  const inZ = $('inZ'), inM = $('inM'), inT = $('inT');
+  const sync = () => {
+    state.z = Number(inZ.value);
+    state.m = Number(inM.value);
+    state.T = Number(inT.value);
+    $('valZ').textContent = state.z;
+    $('valM').textContent = state.m.toFixed(1);
+    $('valT').textContent = state.T;
+  };
+  const onChangeGeometry = () => { sync(); rebuild(); renderQuota(); };
+  const onChangeLoad = () => {
+    sync();
+    // 扭矩只影响结果，不改几何：清空旧结果，提示需重新运行
+    if (!state.running) { clearResults(); setStatus('idle', '参数已变更，待求解'); }
+  };
+
+  [inZ, inM].forEach(el => el.addEventListener('input', onChangeGeometry));
+  inT.addEventListener('input', onChangeLoad);
+
+  runBtn.addEventListener('click', runPreview);
+  $('resetViewBtn').addEventListener('click', () => { resetView(); renderFrame(); });
+
+  // 尺寸变化
+  let rafId = 0;
+  const onResize = () => {
+    cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(resize);
+  };
+  window.addEventListener('resize', onResize);
+  if (window.ResizeObserver && hostElForObserver()) {
+    new ResizeObserver(onResize).observe(hostElForObserver());
+  }
+}
+
+function hostElForObserver() { return document.getElementById('canvasHost'); }
+
+async function boot() {
+  bindEvents();
+  // 先拿到设备标识，再允许消耗额度（指纹链路异常也不阻塞页面）
+  try {
+    await initTrial();
+  } catch (e) {
+    console.error('[trial] 初始化失败，使用降级标识', e);
+    trial.fp = formatMachineCode(fallbackFingerprint());
+    trial.date = todayKey();
+    trial.used = 0;
+    persistTrial();
+    renderQuota();
+  }
+  runBtn.disabled = false;
+  try {
+    await initViewer();
+  } catch (e) {
+    console.error('[three] 初始化失败', e);
+    const el = $('stageLoading');
+    if (el) {
+      el.hidden = false;
+      el.textContent = 'WebGL 初始化失败：请使用支持 WebGL 的浏览器，或检查是否禁用了硬件加速。';
+    }
+  }
+  scheduleMidnightReset();
+}
+
+boot();
+</script>
+</body>
+</html>
