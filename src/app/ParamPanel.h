@@ -2,6 +2,7 @@
 
 #include "core/GearParams.h"
 
+#include <QStringList>
 #include <QWidget>
 
 class QComboBox;
@@ -28,7 +29,7 @@ signals:
     void paramsChanged();
 
 private:
-    /** 刷新分度圆 / 齿顶圆等派生尺寸提示 */
+    /** 刷新分度圆 / 齿顶圆等派生尺寸提示与工程性提醒 */
     void updateDimensionHint();
 
     QSpinBox       *m_teeth      = nullptr;
@@ -38,4 +39,5 @@ private:
     QDoubleSpinBox *m_faceWidth  = nullptr;
     QComboBox      *m_material   = nullptr;
     QLabel         *m_dimension  = nullptr;   // 分度圆 / 齿顶圆提示
+    QLabel         *m_warning    = nullptr;   // 参数区间提醒（不拦截求解）
 };

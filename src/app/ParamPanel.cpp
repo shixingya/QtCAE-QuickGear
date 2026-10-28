@@ -67,9 +67,15 @@ ParamPanel::ParamPanel(QWidget *parent)
     m_dimension->setObjectName(QStringLiteral("dimensionHint"));
     m_dimension->setWordWrap(true);
 
+    m_warning = new QLabel(box);
+    m_warning->setObjectName(QStringLiteral("paramWarning"));
+    m_warning->setWordWrap(true);
+    m_warning->setVisible(false);
+
     auto *boxLayout = new QVBoxLayout(box);
     boxLayout->addLayout(form);
     boxLayout->addWidget(m_dimension);
+    boxLayout->addWidget(m_warning);
 
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
@@ -81,13 +87,19 @@ ParamPanel::ParamPanel(QWidget *parent)
         updateDimensionHint();
         emit paramsChanged();
     });
-    connect(m_pinion, QOverload<int>::of(&QSpinBox::valueChanged), this, &ParamPanel::paramsChanged);
+    connect(m_pinion, QOverload<int>::of(&QSpinBox::valueChanged), this, [this] {
+        updateDimensionHint();
+        emit paramsChanged();
+    });
     connect(m_module, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this] {
         updateDimensionHint();
         emit paramsChanged();
     });
     connect(m_torque, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ParamPanel::paramsChanged);
-    connect(m_faceWidth, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ParamPanel::paramsChanged);
+    connect(m_faceWidth, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this] {
+        updateDimensionHint();
+        emit paramsChanged();
+    });
     connect(m_material, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ParamPanel::paramsChanged);
 
     updateDimensionHint();
@@ -144,4 +156,20 @@ void ParamPanel::updateDimensionHint()
                              .arg(p.pitchDiameter(), 0, 'f', 2)
                              .arg(p.tipDiameter(), 0, 'f', 2)
                              .arg(p.pinionTeeth > 0 ? double(p.teeth) / p.pinionTeeth : 0.0, 0, 'f', 2));
+
+    // 只做"该看一眼"的提醒，不拦截：真实工程判断需要接触比、齿形修形等更多输入
+    QStringList warnings;
+    const double ratio = p.module > 0.0 ? p.faceWidth / p.module : 0.0;
+    if (ratio < 8.0)
+        warnings << QStringLiteral("齿宽偏窄（b/m = %1），齿向载荷集中会更明显").arg(ratio, 0, 'f', 1);
+    else if (ratio > 25.0)
+        warnings << QStringLiteral("齿宽偏宽（b/m = %1），需齿向修形或降低载荷").arg(ratio, 0, 'f', 1);
+    if (p.pinionTeeth < 17)
+        warnings << QStringLiteral("从动轮 %1 齿 < 17，标准直齿存在根切风险").arg(p.pinionTeeth);
+    if (p.pinionTeeth > 0 && double(p.teeth) / p.pinionTeeth > 6.3)
+        warnings << QStringLiteral("单级传动比 i = %1 偏大，建议拆为两级")
+                        .arg(double(p.teeth) / p.pinionTeeth, 0, 'f', 2);
+
+    m_warning->setVisible(!warnings.isEmpty());
+    m_warning->setText(warnings.join(QStringLiteral("\n")));
 }

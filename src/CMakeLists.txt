@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(QtCAE-QuickGear VERSION 0.1.0 LANGUAGES CXX)
+project(QtCAE-QuickGear VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -35,10 +35,14 @@ add_library(qgcore STATIC
     core/MockSolverBackend.h    core/MockSolverBackend.cpp
     core/SolverFactory.h        core/SolverFactory.cpp
     core/LicenseManager.h       core/LicenseManager.cpp
+    core/StlMesh.h              core/StlMesh.cpp
+    core/ProjectFile.h          core/ProjectFile.cpp
 )
 
 target_include_directories(qgcore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(qgcore PUBLIC Qt${QT_VERSION_MAJOR}::Core)
+# Gui 只为拿 QVector3D（几何解析用）；真正的求解器仍是纯计算库
+# 不引入 QWidget，qglicense 才能作为控制台工具运行
+target_link_libraries(qgcore PUBLIC Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
 target_compile_definitions(qgcore PRIVATE QTG_LICENSE_SECRET="${QTG_LICENSE_SECRET}")
 
 if (QTG_USE_CLOSED_SOLVER)
@@ -67,6 +71,7 @@ add_executable(QuickGear WIN32
     app/StressView.h            app/StressView.cpp
     app/ActivationDialog.h      app/ActivationDialog.cpp
     app/SolveWorker.h           app/SolveWorker.cpp
+    app/ReportBuilder.h         app/ReportBuilder.cpp
 )
 
 target_link_libraries(QuickGear PRIVATE qgcore Qt${QT_VERSION_MAJOR}::Widgets)
@@ -76,3 +81,16 @@ target_link_libraries(QuickGear PRIVATE qgcore Qt${QT_VERSION_MAJOR}::Widgets)
 # ---------------------------------------------------------------------------
 add_executable(qglicense tools/license_issuer/main.cpp)
 target_link_libraries(qglicense PRIVATE qgcore)
+
+# ---------------------------------------------------------------------------
+# qgselftest：不靠鼠标的冒烟自检（STL 解析 / 求解 / 导出 / 工程往返 / 验签）
+#   qgselftest.exe --out <目录>   退出码 0 = 全过
+# 复用客户端里两个与渲染相关的源文件，避免再造一份离线渲染代码
+# ---------------------------------------------------------------------------
+add_executable(qgselftest
+    tools/selftest/main.cpp
+    app/StressView.h            app/StressView.cpp
+    app/ReportBuilder.h         app/ReportBuilder.cpp
+)
+target_include_directories(qgselftest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(qgselftest PRIVATE qgcore Qt${QT_VERSION_MAJOR}::Widgets)

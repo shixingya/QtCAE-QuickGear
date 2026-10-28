@@ -9,7 +9,7 @@
 [![求解器](https://img.shields.io/badge/求解器-闭源加密库-B42318?style=flat-square)](#)
 [![演示页](https://img.shields.io/badge/在线演示-GitHub%20Pages-059669?style=flat-square)](https://shixingya.github.io/QtCAE-QuickGear/)
 [![License](https://img.shields.io/badge/License-MIT-1E3A5F?style=flat-square)](LICENSE)
-[![版本](https://img.shields.io/badge/版本-v0.1%20预览-2563EB?style=flat-square)](#)
+[![版本](https://img.shields.io/badge/版本-v0.2%20预览-2563EB?style=flat-square)](#)
 [![Issues](https://img.shields.io/badge/Issues-欢迎反馈-8a97a6?style=flat-square)](https://github.com/shixingya/QtCAE-QuickGear/issues)
 
 **快速预览**：https://shixingya.github.io/QtCAE-QuickGear/
@@ -30,6 +30,8 @@ QtCAE-QuickGear 把"算一轮齿轮应力"这件事压缩到几分钟：导入�
 - **AI 辅助网格生成**：按齿形特征自动布置齿根与接触区网格密度，减少手工调网格的时间
 - **齿轮专用流程**：参数化齿轮副（模数 / 齿数 / 扭矩）或 STL 几何导入，直接出结果
 - **可交付的结果**：峰值等效应力、最大位移、单元规模、安全系数与云图
+- **能交出去的结论页**：一键导出单页 A4 PDF（结论句 + 参数表 + 云图 + 免责声明）或云图 PNG
+- **能接着干活**：工程存成 `.qgpj`，下次打开连参数、几何与上次结果一起回来
 
 ---
 
@@ -146,9 +148,9 @@ QtCAE-QuickGear/
 ├─ src/                 # 开源 Qt 壳工程（Qt5/Qt6 + CMake）
 │  ├─ CMakeLists.txt
 │  ├─ main.cpp
-│  ├─ app/              # 主窗口 / 参数面板 / 云图视图 / 激活对话框 / 求解线程
-│  ├─ core/             # 参数模型 / 求解后端接口 / 示意后端 / 机器码与授权（编为 qgcore 库）
-│  ├─ tools/            # qglicense：授权签发与校验工具（开发者自用，不随安装包发行）
+│  ├─ app/              # 主窗口 / 参数面板 / 云图视图 / 结论页导出 / 激活对话框 / 求解线程
+│  ├─ core/             # 参数模型 / 求解后端接口 / 示意后端 / STL 读取 / 工程文件 / 授权（编为 qgcore 库）
+│  ├─ tools/            # qglicense：授权签发与校验；qgselftest：冒烟自检（均不随安装包发行）
 │  └─ README.md         # 构建方式、免安装包、闭源库接入、授权签发与文件格式
 ├─ .gitignore           # 已屏蔽 build/、dist/、src/private/（闭源库目录）
 └─ README.md
@@ -165,11 +167,14 @@ QtCAE-QuickGear/
 - [x] 客户端激活链路：机器码生成 + 授权文件签名 / 验签 / 导入
 - [x] 授权签发工具 `qglicense`（machine / issue / verify / install）
 - [x] 免安装包（手工部署，干净 PATH 可直接启动）
+- [x] STL 导入（二进制 / ASCII）+ 未求解时的几何投影预览
+- [x] 结果导出：云图 PNG / 单页 A4 结论 PDF（未授权自动加水印）
+- [x] 工程文件 `.qgpj` + 拖放打开 + 最近文件 + 求解日志面板
+- [x] `qgselftest` 冒烟自检（20 项，含 PDF 单页与渲染覆盖率断言）
 - [ ] 签名升级为 Ed25519 公钥验签（当前为共享密钥，可被逆向）
 - [ ] 闭源求解器接入（`-DQTG_USE_CLOSED_SOLVER=ON`）
 - [ ] 三维云图渲染（OpenGL / VTK 替换当前 2D 示意视图）
-- [ ] STL 导入与几何修复的对外说明
-- [ ] 结果导出（云图 PNG / 简报 PDF）
+- [ ] 导入几何参与求解（网格修复 / 实体化，目前仅预览）
 
 ---
 

@@ -15,7 +15,7 @@ int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("QtCAE-QuickGear"));
-    QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+    QApplication::setApplicationVersion(QStringLiteral("0.2.0"));
     QApplication::setOrganizationName(QStringLiteral("shixingya"));
 
     // 自定义信号参数类型（跨线程排队需要）
@@ -74,10 +74,18 @@ int main(int argc, char *argv[])
         QPushButton#ghostButton:hover { background: #F1F3F5; }
 
         QLabel#dimensionHint, QLabel#hintLabel { color: #8A97A6; font-weight: 400; }
+        QLabel#paramWarning { color: #A2652A; font-weight: 400; font-size: 11px; }
         QLabel#sectionTitle { color: #475569; font-weight: 600; }
         QLabel#metricTitle { color: #8A97A6; font-size: 11px; }
         QLabel#metricValue { color: #0F172A; font-size: 19px; font-weight: 600; }
         QWidget#metricBox { background: #FFFFFF; border: 1px solid #E4E7EB; border-radius: 5px; }
+
+        QPlainTextEdit#logView {
+            background: #0E151C; color: #C7D2DD; border: 1px solid #E4E7EB;
+            selection-background-color: #1E3A5F; padding: 4px 6px;
+        }
+        QDockWidget { color: #475569; font-weight: 600; }
+        QDockWidget::title { background: #F1F3F5; padding: 4px 8px; }
 
         QStatusBar { background: #FFFFFF; border-top: 1px solid #E4E7EB; }
         QStatusBar QLabel { color: #475569; padding: 0 6px; }

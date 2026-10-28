@@ -2,11 +2,14 @@
 
 #include <QFontMetrics>
 #include <QLinearGradient>
+#include <QLocale>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPolygonF>
 #include <QRadialGradient>
 #include <QtMath>
+
+#include <algorithm>
 
 namespace {
 
@@ -68,6 +71,25 @@ void StressView::setDemoMode(bool demo)
     update();
 }
 
+void StressView::setMesh(const StlMesh &mesh)
+{
+    m_mesh      = mesh;
+    m_meshCache = QImage();
+    update();
+}
+
+void StressView::clearMesh()
+{
+    m_mesh      = StlMesh();
+    m_meshCache = QImage();
+    update();
+}
+
+bool StressView::hasMesh() const
+{
+    return !m_mesh.isEmpty();
+}
+
 QColor StressView::rampColor(double t) const
 {
     const double clamped = qBound(0.0, t, 1.0);
@@ -95,8 +117,18 @@ void StressView::paintEvent(QPaintEvent *)
     if (area.width() < 40 || area.height() < 40)
         return;
 
-    drawGear(painter, area);
-    drawLegend(painter, QRectF(rect()).adjusted(rect().width() - legendWidth - 8, 16, -8, -16));
+    // 色标只在出结果后才有意义：没有应力场却挂一根色标，等于在暗示不存在的数据
+    if (m_solved)
+        drawLegend(painter, QRectF(rect()).adjusted(rect().width() - legendWidth - 8, 16, -8, -16));
+
+    // 结果优先：有结果就画云图，否则画导入几何的预览。
+    // 标注只在预览态出现：出结果时画面是参数化齿轮，标一行 STL 尺寸会让人误解。
+    if (!m_mesh.isEmpty() && !m_solved) {
+        drawMesh(painter, area);
+        drawMeshCaption(painter, area);
+    } else {
+        drawGear(painter, area);
+    }
 
     // 示意标记
     if (m_demo) {
@@ -191,6 +223,90 @@ void StressView::drawGear(QPainter &painter, const QRectF &area)
     }
 }
 
+void StressView::drawMesh(QPainter &painter, const QRectF &area)
+{
+    const QSize size(qMax(1, int(area.width())), qMax(1, int(area.height())));
+
+    // 投影只跟几何与视口尺寸有关，缓存住避免每帧重排两万个三角形
+    if (m_meshCache.size() != size) {
+        QImage canvas(size, QImage::Format_ARGB32_Premultiplied);
+        canvas.fill(QColor(0x0E, 0x15, 0x1C));
+
+        QPainter p(&canvas);
+        p.setRenderHint(QPainter::Antialiasing, true);
+
+        const QVector3D center = (m_mesh.minCorner + m_mesh.maxCorner) * 0.5f;
+        const double    extent = qMax(1e-6, m_mesh.maxExtent());
+        const double    scale  = qMin(size.width(), size.height()) * 0.74 / extent;
+
+        // 等轴测投影：x' = (dx-dy)cos30，y' = (dx+dy)sin30 - dz
+        const auto project = [&](const QVector3D &v) {
+            const double dx = double(v.x() - center.x());
+            const double dy = double(v.y() - center.y());
+            const double dz = double(v.z() - center.z());
+            return QPointF(size.width() * 0.5 + (dx - dy) * 0.8660254 * scale,
+                           size.height() * 0.5 + ((dx + dy) * 0.5 - dz) * scale);
+        };
+        const auto depth = [](const StlTriangle &tri) {
+            const QVector3D c = (tri.a + tri.b + tri.c) / 3.0f;
+            return double(c.x() + c.y() + c.z());
+        };
+
+        const QVector3D light = QVector3D(0.35f, -0.62f, 0.70f).normalized();
+
+        const int stride = m_mesh.count() > 24000 ? (m_mesh.count() / 24000 + 1) : 1;
+        QVector<int> order;
+        order.reserve(m_mesh.count() / stride + 1);
+        for (int i = 0; i < m_mesh.count(); i += stride)
+            order.append(i);
+        std::sort(order.begin(), order.end(), [&](int lhs, int rhs) {
+            return depth(m_mesh.triangles.at(lhs)) < depth(m_mesh.triangles.at(rhs));
+        });
+
+        p.setPen(Qt::NoPen);
+        for (int index : order) {
+            const StlTriangle &tri = m_mesh.triangles.at(index);
+            const double lambert = qMax(0.0, double(QVector3D::dotProduct(tri.normal, light)));
+            const int    shade   = int(58.0 + 150.0 * lambert);
+            p.setBrush(QColor(shade, qMin(255, shade + 5), qMin(255, shade + 11), 240));
+
+            QPolygonF poly;
+            poly << project(tri.a) << project(tri.b) << project(tri.c);
+            p.drawPolygon(poly);
+        }
+        p.end();
+        m_meshCache = canvas;
+    }
+
+    painter.drawImage(area.topLeft(), m_meshCache);
+}
+
+void StressView::drawMeshCaption(QPainter &painter, const QRectF &area)
+{
+    QFont f = font();
+    f.setPointSizeF(8.0);
+    painter.setFont(f);
+
+    // 说清楚边界：几何只做预览，求解仍是参数化齿轮，不假装是"导入即算"
+    const QVector3D extent = m_mesh.size();
+    const QString full = QStringLiteral("%1 面 · %2×%3×%4 mm · 仅预览，不参与求解")
+                             .arg(QLocale().toString(m_mesh.count()),
+                                  QString::number(extent.x(), 'f', 1),
+                                  QString::number(extent.y(), 'f', 1),
+                                  QString::number(extent.z(), 'f', 1));
+    const QFontMetrics fm(f);
+    const QString caption = fm.elidedText(full, Qt::ElideRight, int(area.width()) - 12);
+
+    // 齿轮盘会占满视口，给文字垫一条半透明底带，避免压在云图上读不清
+    const QRectF strip(area.left(), area.bottom() - 26.0, area.width(), 20.0);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(0x0E, 0x15, 0x1C, 205));
+    painter.drawRect(strip);
+
+    painter.setPen(QColor(0x9A, 0xA8, 0xB5));
+    painter.drawText(strip, Qt::AlignCenter, caption);
+}
+
 void StressView::drawLegend(QPainter &painter, const QRectF &area)
 {
     QFont f = font();
@@ -207,7 +323,7 @@ void StressView::drawLegend(QPainter &painter, const QRectF &area)
     painter.drawRect(bar);
 
     painter.setPen(QColor(0x8A, 0x97, 0xA6));
-    painter.drawText(QRectF(area.left() - 8, area.top() - 6, 60, 16),
+    painter.drawText(QRectF(area.left() - 10, area.top() - 6, 74, 16),
                      Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("σv / MPa"));
 
     const double maxValue = m_solved ? m_ceiling : 320.0;
