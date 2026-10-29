@@ -440,7 +440,13 @@ bool LicenseManager::installFrom(const QString &srcPath, QString *error,
         return false;
     }
 
-    QDir().mkpath(QFileInfo(target).absolutePath());
+    const QString targetDir = QFileInfo(target).absolutePath();
+    if (!QDir().mkpath(targetDir)) {
+        if (error)
+            *error = QStringLiteral("无法创建授权目录：%1（检查磁盘空间与目录权限）")
+                         .arg(QDir::toNativeSeparators(targetDir));
+        return false;
+    }
 
     // 不许拿一张已过期的授权换掉手上还能用的那张：客户往往是错点了旧邮件里的附件
     const LicenseInfo existing = QFile::exists(target) ? parseFile(target, true) : LicenseInfo();
@@ -452,11 +458,38 @@ bool LicenseManager::installFrom(const QString &srcPath, QString *error,
         return false;
     }
 
+    // 同一件事的另一半：旧邮件里那张往往还没过期，只是比手上的短。装进去不会报任何错，
+    // 徽标顶多变个颜色，等它到期那天客户才发现“续过费的授权怎么又过期了”——
+    // 而原文件在替换时已经被删掉。宁可拒绝，并把强换的办法写出来。
+    if (incoming.state == LicenseState::Valid && existing.valid) {
+        const bool shorter = incoming.expire.isValid()
+                             && (!existing.expire.isValid() || existing.expire > incoming.expire);
+        if (shorter) {
+            if (error) {
+                *error = QStringLiteral("现有授权有效期更长（%1），不会被一份更短的授权（%2）覆盖。\n"
+                                        "确认要换成这张，请先删除 %3 再导入。")
+                             .arg(expiryText(existing), expiryText(incoming),
+                                  QDir::toNativeSeparators(target));
+            }
+            return false;
+        }
+    }
+
     // 先落到临时文件再整体替换：原实现先删旧的再复制，复制一失败就两头落空
     const QString staging = target + QStringLiteral(".incoming");
     QFile::remove(staging);
     if (!src.copy(staging)) {
-        if (error) *error = QStringLiteral("复制授权文件失败：%1").arg(src.errorString());
+        // 不能只报 src.errorString()：目标目录不可写时它往往是空的或 "Unknown error"，
+        // 客户拿着一句什么都没有的提示不知道要去看哪里
+        if (error) {
+            *error = QStringLiteral("写入授权目录失败：%1\n源文件 %2 · 目标目录%3")
+                         .arg(src.errorString().isEmpty() ? QStringLiteral("（系统未给出原因）")
+                                                          : src.errorString(),
+                              QDir::toNativeSeparators(srcPath),
+                              QFileInfo(targetDir).isWritable()
+                                  ? QStringLiteral("可写（可能被安全软件拦截）")
+                                  : QStringLiteral("不可写（权限或只读）"));
+        }
         return false;
     }
 

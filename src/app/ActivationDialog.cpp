@@ -154,10 +154,17 @@ void ActivationDialog::importLicenseFile()
     emit licenseChanged();
 
     if (info.valid) {
+        // installFrom 成功时也可能带话，丢掉它等于让客户以为一切如预期。
+        // （比如客户以为手上那张长期授权还在，实际已经被新文件换掉了）
+        const QString extra = error.isEmpty() ? QString() : QStringLiteral("\n%1").arg(error);
         QMessageBox::information(this, QStringLiteral("导入成功"),
-                                 QStringLiteral("授权已生效：%1").arg(info.message));
+                                 QStringLiteral("授权已生效：%1%2").arg(info.message, extra));
     } else {
-        QMessageBox::warning(this, QStringLiteral("授权文件不可用"), info.message);
+        // 走到这里说明文件已经换进默认路径了，只是用不了（最典型：已过期）。
+        // 标题写“已替换”而不是“不可用”，否则客户会以为导入失败，回头再试一遍
+        const QString extra = error.isEmpty() ? QString() : QStringLiteral("\n%1").arg(error);
+        QMessageBox::warning(this, QStringLiteral("授权文件已替换，但当前不可用"),
+                             QStringLiteral("%1%2").arg(info.message, extra));
     }
 }
 

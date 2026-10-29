@@ -995,6 +995,66 @@ int main(int argc, char *argv[])
           QStringLiteral("过期件未覆盖有效件 · 原文件%1")
               .arg(intactAfterStale ? QStringLiteral("未变") : QStringLiteral("被改")));
 
+    // 旧邮件里那张往往还没过期，只是比手上的短（现在手上是 10 天）。装进去不报错，
+    // 顶多徽标变个颜色，等它到期那天客户才发现“续过费的授权怎么又过期了”——
+    // 而原文件在替换时已经被删掉了。所以：更短的盖更长的必须拦。
+    const QString shortestPath = QDir(licenseDir).filePath(QStringLiteral("self-shortest.qglic"));
+    const QString longestPath  = QDir(licenseDir).filePath(QStringLiteral("self-longest.qglic"));
+    const QString foreverPath  = QDir(licenseDir).filePath(QStringLiteral("self-forever.qglic"));
+    LicenseManager::writeLicenseFile(shortestPath, ownMachine, QStringLiteral("自检客户"),
+                                     QStringLiteral("pro"), today, today.addDays(3));
+    LicenseManager::writeLicenseFile(longestPath, ownMachine, QStringLiteral("自检客户"),
+                                     QStringLiteral("pro"), today, today.addDays(400));
+    LicenseManager::writeLicenseFile(foreverPath, ownMachine, QStringLiteral("自检客户"),
+                                     QStringLiteral("pro"), today, QDate());   // 永久
+
+    QString    shorterError;
+    const bool rejectedShorter = !installer.installFrom(shortestPath, &shorterError, installTarget);
+    const bool intactAfterShorter = (readTarget() == targetBefore);
+    check(rejectedShorter && intactAfterShorter
+              && shorterError.contains(QStringLiteral("更长")),
+          QStringLiteral("license-install-no-downgrade"),
+          QStringLiteral("剩 3 天的授权未覆盖剩 10 天的 · 原文件%1")
+              .arg(intactAfterShorter ? QStringLiteral("未变") : QStringLiteral("被改")));
+
+    // 反过来必须放行：续费就是拿更长的换更短的，拦错了等于不让客户续费
+    QString    longerError;
+    const bool installedLonger = installer.installFrom(longestPath, &longerError, installTarget);
+    const LicenseInfo longerInfo = LicenseManager::parseFile(installTarget, true);
+    check(installedLonger && longerError.isEmpty() && longerInfo.valid
+              && longerInfo.daysLeft == 400,
+          QStringLiteral("license-install-renew-ok"),
+          QStringLiteral("剩 %1 天的授权覆盖通过").arg(longerInfo.daysLeft));
+
+    // 永久授权也不能被一张有到期日的换掉：那是最亏的一种“覆盖”
+    QString    foreverError;
+    const bool installedForever = installer.installFrom(foreverPath, &foreverError, installTarget);
+    QString    finiteError;
+    const bool rejectedFinite = !installer.installFrom(expiringPath, &finiteError, installTarget);
+    const LicenseInfo foreverInfo = LicenseManager::parseFile(installTarget, true);
+    check(installedForever && rejectedFinite && foreverInfo.valid && !foreverInfo.expire.isValid(),
+          QStringLiteral("license-install-permanent"),
+          QStringLiteral("永久授权不被 %1 覆盖 · 仍是%2")
+              .arg(LicenseManager::expiryText(expiring),
+                   LicenseManager::expiryText(foreverInfo)));
+
+    // 目录建不出来时得说清楚卡在哪一步：早先只报 src.errorString()，客户拿到的是
+    // “复制授权文件失败：Unknown error”，连该去看哪都不知道
+    const QString blockedParent = QDir(outDir).filePath(QStringLiteral("blocked-dir"));
+    {
+        QFile blocker(blockedParent);
+        if (blocker.open(QIODevice::WriteOnly))
+            blocker.write("not a directory");
+    }
+    QString    badDirError;
+    const bool rejectedBadDir =
+        !installer.installFrom(expiringPath, &badDirError,
+                               QDir(blockedParent).filePath(QStringLiteral("license.qglic")));
+    check(rejectedBadDir && badDirError.contains(QStringLiteral("无法创建授权目录")),
+          QStringLiteral("license-install-bad-dir"),
+          rejectedBadDir ? QStringLiteral("目录不可建时明确报出路径")
+                         : QStringLiteral("目录建不出来却返回了成功"));
+
     // ---- 6c. Ed25519：RFC 8032 §7.1 官方向量（自己写的曲线不拿官方向量对一遍不算数）----
     struct EdCase
     {
