@@ -804,6 +804,41 @@ int main(int argc, char *argv[])
               overwrote ? QStringLiteral("目标被占用却报了成功")
                         : QStringLiteral("拒绝报成功 · 旧文件原样保留 · %1").arg(busyError));
     }
+
+    {
+        // PNG 走的是同一条路。在 PPT / 看图器里插着上次导出的图，用户又点了一次
+        // “导出云图”：以前一句“图片写入失败：<路径>”，客户不知道该关哪个程序；
+        // 而且直接 image.save() 是先截断再写，写到一半失败旧图就没了。
+        const QString pngBusy = QDir(outDir).filePath(QStringLiteral("busy.png"));
+        const QByteArray stalePng = QByteArrayLiteral("\x89PNG\r\n\x1a\nSTALE IMAGE");
+        const bool seeded = writeRaw(pngBusy, stalePng);
+
+        const std::wstring wide = pngBusy.toStdWString();
+        HANDLE lock = ::CreateFileW(wide.c_str(), GENERIC_READ, 0, nullptr,
+                                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+
+        QString pngError;
+        const bool overwrote = writeImagePng(pngBusy, shot, &pngError);
+        if (lock != INVALID_HANDLE_VALUE)
+            ::CloseHandle(lock);
+
+        QByteArray kept;
+        QFile after(pngBusy);
+        if (after.open(QIODevice::ReadOnly)) {
+            kept = after.readAll();
+            after.close();
+        }
+
+        check(seeded && lock != INVALID_HANDLE_VALUE && !overwrote && kept == stalePng
+                  && pngError.contains(QStringLiteral("占用")),
+              QStringLiteral("export-png-locked"),
+              overwrote ? QStringLiteral("目标被占用却报了成功") : pngError);
+
+        // 失败路径也不能把 .part 留在用户目录里
+        check(!QFileInfo::exists(QDir(outDir).filePath(QStringLiteral(".busy.png.part"))),
+              QStringLiteral("export-png-no-temp-left"),
+              QStringLiteral("导出目录无残留 .part"));
+    }
 #endif
 
     // 页脚得能让人自己核对签名算法：客户拿着一份 PDF 就能看出是不是公钥签的

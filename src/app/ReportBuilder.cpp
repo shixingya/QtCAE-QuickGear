@@ -296,11 +296,43 @@ bool writeReportPdf(const QString &path, const ReportContext &ctx, QString *erro
 bool writeImagePng(const QString &path, const QImage &image, QString *error)
 {
     if (image.isNull()) {
-        *error = QStringLiteral("没有可导出的图像");
+        if (error) *error = QStringLiteral("没有可导出的图像");
         return false;
     }
-    if (!image.save(path, "PNG")) {
-        *error = QStringLiteral("图片写入失败：%1").arg(path);
+
+    // 与 PDF 走同一条路：先写同目录的临时文件再换名。直接 image.save(path) 是
+    // “先截断再写”，写到一半失败（盘满、被策略拦）时上一份能用的图已经没了；
+    // 而且失败提示只有一句“图片写入失败：D:\...\x.png”，客户不知道该关哪个程序。
+    const QFileInfo target(path);
+    const QString tempPath = target.absolutePath() + QLatin1Char('/') + QLatin1Char('.')
+                             + target.fileName() + QStringLiteral(".part");
+    QFile::remove(tempPath);   // 上次被强杀留下的残骸
+
+    if (!image.save(tempPath, "PNG")) {
+        QFile::remove(tempPath);
+        if (error) {
+            const QFileInfo dirInfo(target.absolutePath());
+            *error = QStringLiteral("图片写出失败：%1\n目标目录%2")
+                         .arg(QDir::toNativeSeparators(tempPath),
+                              dirInfo.isWritable()
+                                  ? QStringLiteral("可写（可能被安全软件拦截，或磁盘已满）")
+                                  : QStringLiteral("不可写（权限或只读）"));
+        }
+        return false;
+    }
+
+    // Windows 的 rename 不覆盖已有文件；删不掉就是有人正开着它（PPT 或看图器）
+    if (QFile::exists(path) && !QFile::remove(path)) {
+        QFile::remove(tempPath);
+        if (error)
+            *error = QStringLiteral("无法覆盖 %1：文件可能正被图片查看器 / 演示文稿占用，请关闭后重试")
+                         .arg(QDir::toNativeSeparators(path));
+        return false;
+    }
+    if (!QFile::rename(tempPath, path)) {
+        QFile::remove(tempPath);
+        if (error)
+            *error = QStringLiteral("图片换名失败：%1").arg(QDir::toNativeSeparators(path));
         return false;
     }
     return true;
