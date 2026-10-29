@@ -863,7 +863,7 @@ int main(int argc, char *argv[])
                             && loadProject(wildPath, &wildData, &wildError);
         const GearParams &p = wildData.params;
         check(wildOk && p.teeth == GearParamLimits::kTeethMin
-                  && p.pinionTeeth == GearParamLimits::kPinionMin
+                  && p.pinionTeeth == GearParamLimits::kPinionMax
                   && qFuzzyCompare(p.module, GearParamLimits::kModuleMin)
                   && qFuzzyCompare(p.torque, GearParamLimits::kTorqueMax)
                   && qFuzzyCompare(p.faceWidth, GearParamLimits::kFaceWidthMin)
@@ -890,6 +890,26 @@ int main(int argc, char *argv[])
               cleanOk ? QStringLiteral("合法工程无修正（%1 条提醒）")
                             .arg(cleanData.warnings.size())
                       : cleanError);
+
+        // 增速传动（z₂ > z₁）是合法工况：界面上已经能填了，读回来也不能被改
+        const QString speedUpPath = QDir(outDir).filePath(QStringLiteral("speedup.qgpj"));
+        const QByteArray speedUp = QByteArrayLiteral(
+            "{\"app\":\"QtCAE-QuickGear\",\"version\":2,"
+            "\"params\":{\"teeth\":24,\"pinionTeeth\":30,\"module\":2,"
+            "\"torque\":80,\"faceWidth\":20,\"material\":\"40Cr 调质\"},"
+            "\"hasResult\":false}");
+        ProjectData speedUpData;
+        QString     speedUpError;
+        const bool  speedUpOk = writeRaw(speedUpPath, speedUp)
+                                && loadProject(speedUpPath, &speedUpData, &speedUpError);
+        check(speedUpOk && speedUpData.params.teeth == 24
+                  && speedUpData.params.pinionTeeth == 30
+                  && speedUpData.warnings.isEmpty(),
+              QStringLiteral("project-pinion-untouched"),
+              speedUpOk ? QStringLiteral("z₁=24 / z₂=%1 · 提醒 %2 条")
+                              .arg(speedUpData.params.pinionTeeth)
+                              .arg(speedUpData.warnings.size())
+                        : speedUpError);
 
         // 没有 version 字段的老文件：能读，但要在日志里说清楚
         const QString legacyPath = QDir(outDir).filePath(QStringLiteral("legacy.qgpj"));

@@ -125,15 +125,10 @@ QStringList clampToLimits(GearParams *params)
              QStringLiteral("主动轮齿数"), &notes);
     clampInt(&params->pinionTeeth, GearParamLimits::kPinionMin, GearParamLimits::kPinionMax,
              QStringLiteral("从动轮齿数"), &notes);
-    // 齿轮副联动：从动轮不该比主动轮的一半还多，和界面里 z₂ 的上限同理
-    const int pinionCap = qMax(GearParamLimits::kPinionMin, params->teeth / 2);
-    if (params->pinionTeeth > pinionCap) {
-        const int before = params->pinionTeeth;
-        params->pinionTeeth = pinionCap;
-        notes.append(QStringLiteral("从动轮齿数 %1 → %2（不应超过主动轮的一半）")
-                         .arg(before)
-                         .arg(pinionCap));
-    }
+    // 这里曾再按 z₁/2 夹一道：读别人的工程时，z₂ 会被就地改小，还留着一条
+    // “不应超过主动轮的一半”的记录。可 z₂ > z₁ 是增速传动，属于合法工况；
+    // 区间只认 kPinionMin..kPinionMax（界面上也是这一份）。真要提醒就写在日志里，
+    // 不动文件里的数——读一次就改一次，用户再保存，原值就没了。
 
     clampDouble(&params->module, GearParamLimits::kModuleMin, GearParamLimits::kModuleMax,
                 QStringLiteral("模数"), &notes);
