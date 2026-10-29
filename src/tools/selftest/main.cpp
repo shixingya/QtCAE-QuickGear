@@ -942,6 +942,53 @@ int main(int argc, char *argv[])
               QStringLiteral("project-result-without-tooth-stress"),
               hollowOk ? QStringLiteral("按无结果打开 · %1").arg(hollowData.warnings.value(0))
                        : hollowError);
+
+        // 结果与参数自相矛盾：云图按逐齿数组上色，指标栏和结论却看 peakVonMises
+        // 与 n。三个数一旦对不上，用户看到的就是一张自相矛盾的结论页：
+        // 图上两个齿红得发白，指标栏写 σv=42、n=9.52、通过。
+        const QString driftPath = QDir(outDir).filePath(QStringLiteral("drift-result.qgpj"));
+        const QByteArray drift = QByteArrayLiteral(
+            "{\"app\":\"QtCAE-QuickGear\",\"version\":2,"
+            "\"params\":{\"teeth\":24,\"pinionTeeth\":12,\"module\":2,"
+            "\"torque\":80,\"faceWidth\":20,\"material\":\"40Cr 调质\"},"
+            "\"hasResult\":true,"
+            "\"result\":{\"ok\":true,\"peakVonMises\":42,\"safetyFactor\":9.52,"
+            "\"stressCeiling\":320,\"toothStress\":[30,480,12]}}");
+        ProjectData driftData;
+        QString     driftError;
+        const bool  driftOk = writeRaw(driftPath, drift)
+                              && loadProject(driftPath, &driftData, &driftError);
+        // 峰值按更大的那个（480）；n 按 40Cr 的 360 重算 = 0.75（已经不是“通过”）
+        const double driftPeak  = driftData.result.peakVonMises;
+        const double driftN     = driftData.result.safetyFactor;
+        const double driftWant  = GearParamLimits::allowableStressMPa(QStringLiteral("40Cr 调质")) / 480.0;
+        check(driftOk && driftData.hasResult && std::fabs(driftPeak - 480.0) < 1e-6
+                  && std::fabs(driftN - driftWant) < 1e-6 && driftN < 1.0
+                  && driftData.warnings.size() >= 2,
+              QStringLiteral("project-result-reconcile"),
+              driftOk ? QStringLiteral("σv 42→%1 · n 9.52→%2 · 修正 %3 处")
+                            .arg(driftPeak, 0, 'f', 1)
+                            .arg(driftN, 0, 'f', 2)
+                            .arg(driftData.warnings.size())
+                      : driftError);
+
+        // 峰值 0 的结果：n 是无穷大、云图全黑，不能当“有结果”交出去
+        const QString zeroPath = QDir(outDir).filePath(QStringLiteral("zero-result.qgpj"));
+        const QByteArray zero = QByteArrayLiteral(
+            "{\"app\":\"QtCAE-QuickGear\",\"version\":2,"
+            "\"params\":{\"teeth\":24,\"pinionTeeth\":12,\"module\":2},"
+            "\"hasResult\":true,"
+            "\"result\":{\"ok\":true,\"peakVonMises\":0,\"safetyFactor\":0,"
+            "\"toothStress\":[0,0,0]}}");
+        ProjectData zeroData;
+        QString     zeroError;
+        const bool  zeroOk = writeRaw(zeroPath, zero)
+                             && loadProject(zeroPath, &zeroData, &zeroError);
+        check(zeroOk && !zeroData.hasResult && zeroData.warnings.size() == 1
+                  && zeroData.warnings.value(0).contains(QStringLiteral("峰值应力为 0")),
+              QStringLiteral("project-result-zero-peak"),
+              zeroOk ? QStringLiteral("按无结果打开 · %1").arg(zeroData.warnings.value(0))
+                     : zeroError);
     }
 
     // ---- 4c. 材料口径：一份表，三个地方用 ----

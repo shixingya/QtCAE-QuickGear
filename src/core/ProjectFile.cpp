@@ -77,6 +77,52 @@ SolveResult resultFromJson(const QJsonObject &o)
     return r;
 }
 
+/**
+ * 工程文件里的“结果摘要”和“参数”不一定是一家人的：手改过、换过材料、旧版本写过。
+ *
+ * 云图和报告读的是同一份结果，却分别看两个字段：图上按逐齿数组上色，指标栏和
+ * 结论文本用 peakVonMises、安全系数 n。两个数一旦对不上，用户看到的是一张自相矛盾
+ * 的结论页：图上那两个齿红得发白，指标栏写着 σv=42、n=9.52、通过。
+ *
+ * 所以打开时按能自证的量修一道：峰值取逐齿最大值与自报峰值中较大的那个（对校核
+ * 是保守方向），n 按“许用 / σv”重算。改了什么一律写进提醒，不静静改数。
+ */
+QStringList reconcileResult(SolveResult *r, const GearParams &params)
+{
+    QStringList notes;
+
+    double toothPeak = 0.0;
+    for (double v : r->toothStress)
+        toothPeak = qMax(toothPeak, v);
+
+    if (toothPeak > r->peakVonMises + 1e-9) {
+        notes.append(QStringLiteral("结果峰值应力 %1 MPa 低于逐齿最大值 %2 MPa，已按 %2 计")
+                         .arg(QString::number(r->peakVonMises, 'f', 1),
+                              QString::number(toothPeak, 'f', 1)));
+        r->peakVonMises = toothPeak;
+    }
+
+    if (!(r->peakVonMises > 0.0)) {
+        notes.append(QStringLiteral("结果峰值应力为 0，已按无结果打开"));
+        return notes;
+    }
+
+    // n = 许用 / σv。文件里的 n 可能来自另一种材料、上一版的许用值表，或者根本没写；
+    // 1% 是“显示两位小数看不出差别”的宽度，超过就重算
+    const double limit    = GearParamLimits::allowableStressMPa(params.material);
+    const double expected = limit / r->peakVonMises;
+    if (!(qAbs(expected - r->safetyFactor) <= expected * 0.01)) {
+        notes.append(QStringLiteral("结果安全系数 %1 与当前材料不符（许用 %2 / σv %3 = %4），已重算")
+                         .arg(QString::number(r->safetyFactor, 'f', 2),
+                              QString::number(limit, 'f', 0),
+                              QString::number(r->peakVonMises, 'f', 1),
+                              QString::number(expected, 'f', 2)));
+        r->safetyFactor = expected;
+    }
+
+    return notes;
+}
+
 } // namespace
 
 QString projectFileFilter()
@@ -162,6 +208,10 @@ bool loadProject(const QString &path, ProjectData *data, QString *error)
             // 但那张“云图”会是一整片灰——宁可按无结果打开，也不要交一张假图。
             out.hasResult = false;
             out.warnings.append(QStringLiteral("上次结果缺逐齿应力，已按无结果打开"));
+        } else {
+            out.warnings.append(reconcileResult(&out.result, out.params));
+            if (!(out.result.peakVonMises > 0.0))
+                out.hasResult = false;
         }
     }
 
