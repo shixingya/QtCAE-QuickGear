@@ -977,14 +977,24 @@ int main(int argc, char *argv[])
         // 结果与参数自相矛盾：云图按逐齿数组上色，指标栏和结论却看 peakVonMises
         // 与 n。三个数一旦对不上，用户看到的就是一张自相矛盾的结论页：
         // 图上两个齿红得发白，指标栏写 σv=42、n=9.52、通过。
+        // 逐齿数组得给满 24 个（z=24）——个数对不上属于另一种毛病，另有断言。
+        auto resultJson = [](const QString &material, const QString &resultBody) {
+            return QStringLiteral("{\"app\":\"QtCAE-QuickGear\",\"version\":2,"
+                                  "\"params\":{\"teeth\":24,\"pinionTeeth\":12,\"module\":2,"
+                                  "\"torque\":80,\"faceWidth\":20,\"material\":\"%1\"},"
+                                  "\"hasResult\":true,\"result\":%2}")
+                .arg(material, resultBody)
+                .toUtf8();
+        };
+        QStringList teeth24;
+        for (int i = 0; i < 24; ++i)
+            teeth24 << QString::number(i == 1 ? 480.0 : 30.0 + i, 'f', 1);
         const QString driftPath = QDir(outDir).filePath(QStringLiteral("drift-result.qgpj"));
-        const QByteArray drift = QByteArrayLiteral(
-            "{\"app\":\"QtCAE-QuickGear\",\"version\":2,"
-            "\"params\":{\"teeth\":24,\"pinionTeeth\":12,\"module\":2,"
-            "\"torque\":80,\"faceWidth\":20,\"material\":\"40Cr 调质\"},"
-            "\"hasResult\":true,"
-            "\"result\":{\"ok\":true,\"peakVonMises\":42,\"safetyFactor\":9.52,"
-            "\"stressCeiling\":320,\"toothStress\":[30,480,12]}}");
+        const QByteArray drift = resultJson(
+            QStringLiteral("40Cr 调质"),
+            QStringLiteral("{\"ok\":true,\"peakVonMises\":42,\"safetyFactor\":9.52,"
+                           "\"stressCeiling\":320,\"toothStress\":[%1]}")
+                .arg(teeth24.join(QLatin1Char(','))));
         ProjectData driftData;
         QString     driftError;
         const bool  driftOk = writeRaw(driftPath, drift)
@@ -1004,13 +1014,15 @@ int main(int argc, char *argv[])
                       : driftError);
 
         // 峰值 0 的结果：n 是无穷大、云图全黑，不能当“有结果”交出去
+        QStringList zeros;
+        for (int i = 0; i < 24; ++i)
+            zeros << QStringLiteral("0");
         const QString zeroPath = QDir(outDir).filePath(QStringLiteral("zero-result.qgpj"));
-        const QByteArray zero = QByteArrayLiteral(
-            "{\"app\":\"QtCAE-QuickGear\",\"version\":2,"
-            "\"params\":{\"teeth\":24,\"pinionTeeth\":12,\"module\":2},"
-            "\"hasResult\":true,"
-            "\"result\":{\"ok\":true,\"peakVonMises\":0,\"safetyFactor\":0,"
-            "\"toothStress\":[0,0,0]}}");
+        const QByteArray zero = resultJson(
+            QStringLiteral("20CrMnTi 渗碳淬火"),
+            QStringLiteral("{\"ok\":true,\"peakVonMises\":0,\"safetyFactor\":0,"
+                           "\"toothStress\":[%1]}")
+                .arg(zeros.join(QLatin1Char(','))));
         ProjectData zeroData;
         QString     zeroError;
         const bool  zeroOk = writeRaw(zeroPath, zero)
@@ -1020,6 +1032,25 @@ int main(int argc, char *argv[])
               QStringLiteral("project-result-zero-peak"),
               zeroOk ? QStringLiteral("按无结果打开 · %1").arg(zeroData.warnings.value(0))
                      : zeroError);
+
+        // 逐齿数组个数与齿数对不上：云图用 i % size 取色，热斑会在齿盘上重复
+        // （24 齿配 12 个数 → 一半的齿红两次），看着像“有两个危险齿”。这个数补不出来。
+        const QString shortPath = QDir(outDir).filePath(QStringLiteral("short-teeth.qgpj"));
+        const QByteArray shortTeeth = QByteArrayLiteral(
+            "{\"app\":\"QtCAE-QuickGear\",\"version\":2,"
+            "\"params\":{\"teeth\":24,\"pinionTeeth\":12,\"module\":2},"
+            "\"hasResult\":true,"
+            "\"result\":{\"ok\":true,\"peakVonMises\":300,\"safetyFactor\":1.33,"
+            "\"toothStress\":[300,200,150,120,100,80,70,60,50,40,30,20]}}");
+        ProjectData shortData;
+        QString     shortError;
+        const bool  shortOk = writeRaw(shortPath, shortTeeth)
+                              && loadProject(shortPath, &shortData, &shortError);
+        check(shortOk && !shortData.hasResult && shortData.warnings.size() == 1
+                  && shortData.warnings.value(0).contains(QStringLiteral("对不上")),
+              QStringLiteral("project-result-tooth-count"),
+              shortOk ? QStringLiteral("按无结果打开 · %1").arg(shortData.warnings.value(0))
+                      : shortError);
     }
 
     // ---- 4c. 材料口径：一份表，三个地方用 ----

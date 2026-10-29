@@ -86,25 +86,36 @@ SolveResult resultFromJson(const QJsonObject &o)
  *
  * 所以打开时按能自证的量修一道：峰值取逐齿最大值与自报峰值中较大的那个（对校核
  * 是保守方向），n 按“许用 / σv”重算。改了什么一律写进提醒，不静静改数。
+ *
+ * 返回 false 表示这份结果已经不能用了（逐齿数组与齿数对不上、峰值是 0），
+ * 调用方要按“无结果”打开。
  */
-QStringList reconcileResult(SolveResult *r, const GearParams &params)
+bool reconcileResult(SolveResult *r, const GearParams &params, QStringList *notes)
 {
-    QStringList notes;
+    // 逐齿数组是云图上色的底数据：StressView 用 i % size 取色，个数对不上时
+    // 热斑会在齿盘上重复出现（一半的齿红两次），看着像“有两个危险齿”。
+    // 宁可按无结果打开，也不拿它编一张图——这个数补不出来。
+    if (r->toothStress.size() != params.teeth) {
+        notes->append(QStringLiteral("逐齿应力 %1 个，与主动轮 %2 齿对不上，已按无结果打开")
+                          .arg(r->toothStress.size())
+                          .arg(params.teeth));
+        return false;
+    }
 
     double toothPeak = 0.0;
     for (double v : r->toothStress)
         toothPeak = qMax(toothPeak, v);
 
     if (toothPeak > r->peakVonMises + 1e-9) {
-        notes.append(QStringLiteral("结果峰值应力 %1 MPa 低于逐齿最大值 %2 MPa，已按 %2 计")
-                         .arg(QString::number(r->peakVonMises, 'f', 1),
-                              QString::number(toothPeak, 'f', 1)));
+        notes->append(QStringLiteral("结果峰值应力 %1 MPa 低于逐齿最大值 %2 MPa，已按 %2 计")
+                          .arg(QString::number(r->peakVonMises, 'f', 1),
+                               QString::number(toothPeak, 'f', 1)));
         r->peakVonMises = toothPeak;
     }
 
     if (!(r->peakVonMises > 0.0)) {
-        notes.append(QStringLiteral("结果峰值应力为 0，已按无结果打开"));
-        return notes;
+        notes->append(QStringLiteral("结果峰值应力为 0，已按无结果打开"));
+        return false;
     }
 
     // n = 许用 / σv。文件里的 n 可能来自另一种材料、上一版的许用值表，或者根本没写；
@@ -112,15 +123,15 @@ QStringList reconcileResult(SolveResult *r, const GearParams &params)
     const double limit    = GearParamLimits::allowableStressMPa(params.material);
     const double expected = limit / r->peakVonMises;
     if (!(qAbs(expected - r->safetyFactor) <= expected * 0.01)) {
-        notes.append(QStringLiteral("结果安全系数 %1 与当前材料不符（许用 %2 / σv %3 = %4），已重算")
-                         .arg(QString::number(r->safetyFactor, 'f', 2),
-                              QString::number(limit, 'f', 0),
-                              QString::number(r->peakVonMises, 'f', 1),
-                              QString::number(expected, 'f', 2)));
+        notes->append(QStringLiteral("结果安全系数 %1 与当前材料不符（许用 %2 / σv %3 = %4），已重算")
+                          .arg(QString::number(r->safetyFactor, 'f', 2),
+                               QString::number(limit, 'f', 0),
+                               QString::number(r->peakVonMises, 'f', 1),
+                               QString::number(expected, 'f', 2)));
         r->safetyFactor = expected;
     }
 
-    return notes;
+    return true;
 }
 
 } // namespace
@@ -209,8 +220,10 @@ bool loadProject(const QString &path, ProjectData *data, QString *error)
             out.hasResult = false;
             out.warnings.append(QStringLiteral("上次结果缺逐齿应力，已按无结果打开"));
         } else {
-            out.warnings.append(reconcileResult(&out.result, out.params));
-            if (!(out.result.peakVonMises > 0.0))
+            QStringList notes;
+            const bool usable = reconcileResult(&out.result, out.params, &notes);
+            out.warnings.append(notes);
+            if (!usable)
                 out.hasResult = false;
         }
     }
