@@ -23,6 +23,25 @@ struct GearParamLimits
     static constexpr double kTorqueMax    = 800.0;
     static constexpr double kFaceWidthMin = 4.0;
     static constexpr double kFaceWidthMax = 120.0;
+
+    /** 未知材料的许用应力。只在材料已被归一化之后的兜底路径里用到 */
+    static constexpr double kUnknownAllowable = 350.0;
+
+    /**
+     * 材料表：界面下拉、工程文件校验、求解后端取许用应力共用这一份。
+     *
+     * 以前三个地方各写一套：下拉列出四个牌号，后端靠 contains("40Cr") 猜许用，
+     * 工程文件里写个表以外的名字就静静拿到 350 MPa，界面也不改——报告上的材料
+     * 和算出来的安全系数可以属于两种不同的钢。
+     */
+    static QStringList materials();
+    static QString     defaultMaterial();
+
+    /** 把写法归一化到材料表里的标准名；认不出来返回空 */
+    static QString canonicalMaterial(const QString &raw);
+
+    /** 许用应力（MPa）。认不出来的名字返回 kUnknownAllowable */
+    static double allowableStressMPa(const QString &raw);
 };
 
 /**
@@ -36,7 +55,7 @@ struct GearParams
     double module     = 2.0;                       // 模数 m
     double torque     = 80.0;                      // 输入扭矩 T
     double faceWidth  = 20.0;                      // 齿宽 b
-    QString material  = QStringLiteral("20CrMnTi");// 材料牌号（影响许用应力）
+    QString material  = QStringLiteral("20CrMnTi 渗碳淬火");  // 材料牌号（影响许用应力）
 
     /** 分度圆直径 d = m·z */
     double pitchDiameter() const { return module * teeth; }

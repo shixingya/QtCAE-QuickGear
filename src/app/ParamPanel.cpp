@@ -50,10 +50,8 @@ ParamPanel::ParamPanel(QWidget *parent)
     m_faceWidth->setValue(20.0);
 
     m_material = new QComboBox(box);
-    m_material->addItems({QStringLiteral("20CrMnTi 渗碳淬火"),
-                          QStringLiteral("40Cr 调质"),
-                          QStringLiteral("45 钢调质"),
-                          QStringLiteral("尼龙 PA66")});
+    // 材料表只在 GearParamLimits 里写一份：界面下拉、工程文件校验、后端取许用应力都用它
+    m_material->addItems(GearParamLimits::materials());
 
     auto *form = new QFormLayout;
     form->setLabelAlignment(Qt::AlignLeft);
@@ -135,8 +133,8 @@ void ParamPanel::setParams(const GearParams &params)
     m_faceWidth->setValue(params.faceWidth);
 
     const int index = m_material->findText(params.material);
-    if (index >= 0)
-        m_material->setCurrentIndex(index);
+    // 认不出来的名字不装没看见：退到默认材料，并在参数提示里说一声（读文件时 core 已归一化）
+    m_material->setCurrentIndex(index >= 0 ? index : 0);
 
     updateDimensionHint();
 }

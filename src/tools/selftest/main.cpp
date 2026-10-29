@@ -656,6 +656,19 @@ int main(int argc, char *argv[])
               QStringLiteral("已授权页脚带签名算法 · 试用页脚不冒充授权"));
     }
 
+    // 报告里把许用应力写出来（和表格同一份），客户能自己核 n = 许用 / σv
+    {
+        const QString html = buildReportHtml(ctx);
+        const double  allow = GearParamLimits::allowableStressMPa(ctx.params.material);
+        check(html.contains(QStringLiteral("材料许用应力"))
+                  && html.contains(QString::number(allow, 'f', 0))
+                  && html.contains(ctx.params.material),
+              QStringLiteral("report-allowable-row"),
+              QStringLiteral("%1 · 许用 %2 MPa")
+                  .arg(ctx.params.material)
+                  .arg(allow, 0, 'f', 0));
+    }
+
     const QString pngPath = QDir(outDir).filePath(QStringLiteral("stress.png"));
     const bool pngOk = writeImagePng(pngPath, watermarked, &error);
     check(pngOk && QFileInfo(pngPath).size() > 5000, QStringLiteral("export-png"),
@@ -765,7 +778,7 @@ int main(int argc, char *argv[])
                   && qFuzzyCompare(p.module, GearParamLimits::kModuleMin)
                   && qFuzzyCompare(p.torque, GearParamLimits::kTorqueMax)
                   && qFuzzyCompare(p.faceWidth, GearParamLimits::kFaceWidthMin)
-                  && p.material == QStringLiteral("20CrMnTi")
+                  && p.material == GearParamLimits::defaultMaterial()
                   && wildData.warnings.size() >= 6,
               QStringLiteral("project-params-clamped"),
               wildOk ? QStringLiteral("z=%1 z2=%2 m=%3 T=%4 b=%5 材料=%6 · 修正 %7 处")
@@ -820,6 +833,56 @@ int main(int argc, char *argv[])
               QStringLiteral("project-result-without-tooth-stress"),
               hollowOk ? QStringLiteral("按无结果打开 · %1").arg(hollowData.warnings.value(0))
                        : hollowError);
+    }
+
+    // ---- 4c. 材料口径：一份表，三个地方用 ----
+    // 以前下拉写四个牌号、后端靠 contains 猜许用、工程文件里认不出的名字静默拿 350，
+    // 结果是“报告上的材料”和“算 n 用的许用”可以属于两种不同的钢。
+    {
+        const QStringList names = GearParamLimits::materials();
+        bool tableOk = names.size() == 4 && names.first() == GearParamLimits::defaultMaterial();
+        for (const QString &name : names)
+            tableOk = tableOk && GearParamLimits::canonicalMaterial(name) == name
+                      && GearParamLimits::allowableStressMPa(name) > 0.0;
+        // 四个牌号的许用必须两两不同，否则“选错了材料”根本看不出来
+        const double a = GearParamLimits::allowableStressMPa(names.value(0));
+        const double b = GearParamLimits::allowableStressMPa(names.value(1));
+        const double c = GearParamLimits::allowableStressMPa(names.value(2));
+        const double d = GearParamLimits::allowableStressMPa(names.value(3));
+        const bool distinct = a != b && b != c && c != d && a != d;
+        check(tableOk && distinct, QStringLiteral("material-table"),
+              QStringLiteral("%1 项 · 许用 %2/%3/%4/%5 MPa")
+                  .arg(names.size())
+                  .arg(a, 0, 'f', 0)
+                  .arg(b, 0, 'f', 0)
+                  .arg(c, 0, 'f', 0)
+                  .arg(d, 0, 'f', 0));
+
+        // 早期版本存的裸牌号要能归一化；凭空写的“42CrMo”不算数
+        check(GearParamLimits::canonicalMaterial(QStringLiteral("20CrMnTi"))
+                      == GearParamLimits::defaultMaterial()
+                  && GearParamLimits::canonicalMaterial(QStringLiteral("42CrMo")).isEmpty()
+                  && GearParamLimits::allowableStressMPa(QStringLiteral("42CrMo"))
+                         == GearParamLimits::kUnknownAllowable,
+              QStringLiteral("material-canonical"),
+              QStringLiteral("裸牌号归一 · 表外材料不当已知"));
+
+        // 工程文件里写表外材料：不能静静拿 350 MPa 算完就交报告
+        const QString oddPath = QDir(outDir).filePath(QStringLiteral("odd-material.qgpj"));
+        const QByteArray odd = QByteArrayLiteral(
+            "{\"app\":\"QtCAE-QuickGear\",\"version\":2,"
+            "\"params\":{\"teeth\":24,\"pinionTeeth\":12,\"module\":2,"
+            "\"torque\":80,\"faceWidth\":20,\"material\":\"42CrMo\"}}");
+        ProjectData oddData;
+        QString     oddError;
+        const bool  oddOk = writeRaw(oddPath, odd) && loadProject(oddPath, &oddData, &oddError);
+        check(oddOk && oddData.params.material == GearParamLimits::defaultMaterial()
+                  && oddData.warnings.size() == 1
+                  && oddData.warnings.value(0).contains(QStringLiteral("不在可选列表")),
+              QStringLiteral("project-material-unknown"),
+              oddOk ? QStringLiteral("%1 · %2").arg(oddData.params.material,
+                                                     oddData.warnings.value(0))
+                    : oddError);
     }
 
     // ---- 5. 授权：签发能通过、改一个字节就不通过 ----

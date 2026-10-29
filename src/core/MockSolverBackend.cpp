@@ -27,15 +27,9 @@ const QVector<Stage> kStages = {
 
 double allowableStressMPa(const QString &material)
 {
-    if (material.contains(QStringLiteral("45")))
-        return 300.0;                       // 45 钢调质
-    if (material.contains(QStringLiteral("40Cr")))
-        return 360.0;
-    if (material.contains(QStringLiteral("20CrMnTi")))
-        return 400.0;                       // 渗碳淬火
-    if (material.contains(QStringLiteral("尼龙")))
-        return 60.0;
-    return 350.0;
+    // 材料表在 GearParamLimits 里：界面下拉、工程文件校验、这里取许用都看同一份。
+    // 网页端仍通过这个函数拿数（自检会拿 docs/index.html 里的常量对账）。
+    return GearParamLimits::allowableStressMPa(material);
 }
 
 QString MockSolverBackend::displayName() const
@@ -77,7 +71,7 @@ SolveResult MockSolverBackend::solve(const GearParams &params, const ProgressFn 
     // 截断线 640 = 量程 320 的两倍：网页端 docs/index.html 的 estimateResults
     // 用的是同一个规则，改这里必须同步改那边，否则同一个参数两边给出两个数。
     const double sigma = 12.0 * T / qPow(m, 3.0) * qSqrt(24.0 / z);
-    const double limit = allowableStressMPa(params.material);
+    const double limit = GearParamLimits::allowableStressMPa(params.material);
 
     result.peakVonMises  = qMin(sigma, 640.0);
     result.maxDeflection = result.peakVonMises * 0.09;

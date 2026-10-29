@@ -144,6 +144,10 @@ QString buildReportHtml(const ReportContext &ctx, const QString &imageSrc)
     body += row(QStringLiteral("输入扭矩 T (N·m)"), QString::number(p.torque, 'f', 1));
     body += row(QStringLiteral("齿宽 b (mm)"), QString::number(p.faceWidth, 'f', 1));
     body += row(QStringLiteral("材料"), p.material);
+    // 把许用应力一并写出来：客户拿到 PDF 能用 n = 许用 / σv 自己核一遍，
+    // 不用回来问“你这个安全系数是怎么算的”
+    body += row(QStringLiteral("材料许用应力 (MPa)"),
+                QString::number(GearParamLimits::allowableStressMPa(p.material), 'f', 0));
     body += row(QStringLiteral("分度圆 / 齿顶圆 (mm)"),
                 QStringLiteral("%1 / %2")
                     .arg(QString::number(p.pitchDiameter(), 'f', 1),
