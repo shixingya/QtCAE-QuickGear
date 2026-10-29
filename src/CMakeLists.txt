@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(QtCAE-QuickGear VERSION 0.4.4 LANGUAGES CXX)
+project(QtCAE-QuickGear VERSION 0.4.5 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -50,7 +50,7 @@ set(QTG_SIGNING_SEED "RaxAa+3lIuneFceb52ONsJUdtEGyVkVMm0Cm845KEgU=" CACHE STRING
 # qgcore：与界面无关的核心库，被客户端与授权签发工具共用
 # ---------------------------------------------------------------------------
 add_library(qgcore STATIC
-    core/GearParams.h
+    core/GearParams.h            core/GearParams.cpp
     core/ISolverBackend.h
     core/MockSolverBackend.h    core/MockSolverBackend.cpp
     core/SolverFactory.h        core/SolverFactory.cpp

@@ -3,6 +3,7 @@
 #include "ISolverBackend.h"
 
 #include <QString>
+#include <QStringList>
 
 /**
  * 一份工程（.qgpj）的全部内容：参数 + 结果摘要 + 几何引用。
@@ -18,6 +19,12 @@ struct ProjectData
     QString     meshPath;   // 导入的 STL 绝对路径，可为空
     QString     note;       // 用户备注（工况说明）
     QString     savedAt;    // ISO 8601
+
+    /**
+     * 读取时发生过什么，例如“主动轮齿数 0 → 10”。
+     * 只用于打开时的日志，不写回文件：把别人的数改成合法值可以，悄悄改就不行。
+     */
+    QStringList warnings;
 };
 
 /** QFileDialog 用的过滤器串 */

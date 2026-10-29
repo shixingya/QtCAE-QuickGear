@@ -142,14 +142,27 @@ bool loadProject(const QString &path, ProjectData *data, QString *error)
     }
 
     ProjectData out;
+    if (version <= 0) {
+        // 没有版本号的只可能是早期手写/脚本生成的：按缺省字段读，但要说明白
+        out.warnings.append(QStringLiteral("工程文件没有 version 字段，按当前格式宽松读取"));
+    }
     out.params    = paramsFromJson(root.value(QStringLiteral("params")).toObject());
+    // 工程文件是会给同事、客户、客服转发的：里面的数不能直接信任
+    out.warnings.append(clampToLimits(&out.params));
     out.note      = root.value(QStringLiteral("note")).toString();
     out.meshPath  = root.value(QStringLiteral("meshPath")).toString();
     out.savedAt   = root.value(QStringLiteral("savedAt")).toString();
     out.hasResult = root.value(QStringLiteral("hasResult")).toBool();
     if (out.hasResult) {
         out.result = resultFromJson(root.value(QStringLiteral("result")).toObject());
-        out.hasResult = out.result.ok;   // 存了但 ok=false 的结果视作没有结果
+        if (!out.result.ok) {
+            out.hasResult = false;   // 存了但 ok=false 的结果视作没有结果
+        } else if (out.result.toothStress.isEmpty()) {
+            // 云图、逐齿色块、报告图全从这排数来。缺了它照样能显示出 σv 和 n，
+            // 但那张“云图”会是一整片灰——宁可按无结果打开，也不要交一张假图。
+            out.hasResult = false;
+            out.warnings.append(QStringLiteral("上次结果缺逐齿应力，已按无结果打开"));
+        }
     }
 
     *data = out;

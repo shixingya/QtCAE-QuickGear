@@ -14,34 +14,36 @@ ParamPanel::ParamPanel(QWidget *parent)
 {
     auto *box = new QGroupBox(QStringLiteral("齿轮副参数"), this);
 
+    // 区间数字只从 GearParamLimits 取：工程文件读取用的也是同一份，
+    // 两边各写一套迟早出现"界面能填 80，打开文件被改成 80 以外"的怪事
     m_teeth = new QSpinBox(box);
-    m_teeth->setRange(10, 80);
+    m_teeth->setRange(GearParamLimits::kTeethMin, GearParamLimits::kTeethMax);
     m_teeth->setSingleStep(2);
     m_teeth->setSuffix(QStringLiteral(" 齿"));
     m_teeth->setValue(24);
 
     m_pinion = new QSpinBox(box);
-    m_pinion->setRange(6, 40);
+    m_pinion->setRange(GearParamLimits::kPinionMin, GearParamLimits::kPinionMax);
     m_pinion->setSingleStep(2);
     m_pinion->setSuffix(QStringLiteral(" 齿"));
     m_pinion->setValue(12);
 
     m_module = new QDoubleSpinBox(box);
-    m_module->setRange(0.5, 8.0);
+    m_module->setRange(GearParamLimits::kModuleMin, GearParamLimits::kModuleMax);
     m_module->setSingleStep(0.5);
     m_module->setDecimals(1);
     m_module->setSuffix(QStringLiteral(" mm"));
     m_module->setValue(2.0);
 
     m_torque = new QDoubleSpinBox(box);
-    m_torque->setRange(5.0, 800.0);
+    m_torque->setRange(GearParamLimits::kTorqueMin, GearParamLimits::kTorqueMax);
     m_torque->setSingleStep(5.0);
     m_torque->setDecimals(0);
     m_torque->setSuffix(QStringLiteral(" N·m"));
     m_torque->setValue(80.0);
 
     m_faceWidth = new QDoubleSpinBox(box);
-    m_faceWidth->setRange(4.0, 120.0);
+    m_faceWidth->setRange(GearParamLimits::kFaceWidthMin, GearParamLimits::kFaceWidthMax);
     m_faceWidth->setSingleStep(1.0);
     m_faceWidth->setDecimals(1);
     m_faceWidth->setSuffix(QStringLiteral(" mm"));

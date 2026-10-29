@@ -597,6 +597,49 @@ int main(int argc, char *argv[])
     check(pdfPages == 1, QStringLiteral("export-pdf-single-page"),
           QStringLiteral("%1 页").arg(pdfPages));
 
+    // 临时文件不能留在导出目录里：用户看到 .report.pdf.part 会以为导出出了问题
+    {
+        const QString partPath = QFileInfo(pdfPath).absolutePath()
+                                 + QStringLiteral("/.report.pdf.part");
+        check(!QFileInfo::exists(partPath), QStringLiteral("export-pdf-no-temp-left"),
+              QStringLiteral("导出目录无残留 .part"));
+    }
+
+#ifdef Q_OS_WIN
+    {
+        // 现场最常见的一幕：上一份报告还开在阅读器里，用户又点了一次导出。
+        // 以前这里只查“目标文件存在且非空”——写入其实失败了，旧文件大小仍然 > 0，
+        // 于是把上次那份旧报告当成本次成果报给用户。
+        const QString busyPath = QDir(outDir).filePath(QStringLiteral("busy.pdf"));
+        const QByteArray stale = QByteArrayLiteral("%PDF-1.4\nSTALE REPORT FROM LAST TIME\n");
+        const bool seeded = writeRaw(busyPath, stale);
+
+        const std::wstring wide = busyPath.toStdWString();
+        HANDLE lock = ::CreateFileW(wide.c_str(), GENERIC_READ, 0, nullptr,
+                                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+
+        QString busyError;
+        const bool overwrote = writeReportPdf(busyPath, ctx, &busyError);
+
+        // 锁是按“不共享”开的，自己读也读不了，所以先解再核旧内容有没有被动过
+        if (lock != INVALID_HANDLE_VALUE)
+            ::CloseHandle(lock);
+
+        QByteArray kept;
+        QFile after(busyPath);
+        if (after.open(QIODevice::ReadOnly)) {
+            kept = after.readAll();
+            after.close();
+        }
+
+        check(seeded && lock != INVALID_HANDLE_VALUE && !overwrote && !busyError.isEmpty()
+                  && kept == stale,
+              QStringLiteral("export-pdf-locked"),
+              overwrote ? QStringLiteral("目标被占用却报了成功")
+                        : QStringLiteral("拒绝报成功 · 旧文件原样保留 · %1").arg(busyError));
+    }
+#endif
+
     // 页脚得能让人自己核对签名算法：客户拿着一份 PDF 就能看出是不是公钥签的
     {
         ReportContext licensedCtx = ctx;
@@ -672,6 +715,83 @@ int main(int argc, char *argv[])
                   .arg(loaded.result.peakVonMises, 0, 'f', 1)
                   .arg(loaded.params.teeth)
                   .arg(loaded.note));
+    }
+
+    // ---- 4b. 工程文件是会被转发的：里面的数不能直接信 ----
+    // 手改过的 .qgpj 写 z=0、m=-2、T=1e9，以前会原样吃进去，
+    // 然后在求解或绘图里变成一个说不清的数（或直接把界面卡住）。
+    {
+        const QString wildPath = QDir(outDir).filePath(QStringLiteral("wild-params.qgpj"));
+        const QByteArray wild = QByteArrayLiteral(
+            "{\"app\":\"QtCAE-QuickGear\",\"version\":2,"
+            "\"params\":{\"teeth\":0,\"pinionTeeth\":999,\"module\":-2,"
+            "\"torque\":1e9,\"faceWidth\":0,\"material\":\"\"},"
+            "\"hasResult\":false}");
+        QString wildError;
+        ProjectData wildData;
+        const bool wildOk = writeRaw(wildPath, wild)
+                            && loadProject(wildPath, &wildData, &wildError);
+        const GearParams &p = wildData.params;
+        check(wildOk && p.teeth == GearParamLimits::kTeethMin
+                  && p.pinionTeeth == GearParamLimits::kPinionMin
+                  && qFuzzyCompare(p.module, GearParamLimits::kModuleMin)
+                  && qFuzzyCompare(p.torque, GearParamLimits::kTorqueMax)
+                  && qFuzzyCompare(p.faceWidth, GearParamLimits::kFaceWidthMin)
+                  && p.material == QStringLiteral("20CrMnTi")
+                  && wildData.warnings.size() >= 6,
+              QStringLiteral("project-params-clamped"),
+              wildOk ? QStringLiteral("z=%1 z2=%2 m=%3 T=%4 b=%5 材料=%6 · 修正 %7 处")
+                           .arg(p.teeth)
+                           .arg(p.pinionTeeth)
+                           .arg(p.module, 0, 'f', 1)
+                           .arg(p.torque, 0, 'f', 0)
+                           .arg(p.faceWidth, 0, 'f', 1)
+                           .arg(p.material)
+                           .arg(wildData.warnings.size())
+                     : wildError);
+
+        // 合法文件不能被无縁无故改动，否则每次打开都在“修正”用户的参数
+        ProjectData cleanData;
+        QString     cleanError;
+        const bool  cleanOk = loadProject(projectPath, &cleanData, &cleanError);
+        check(cleanOk && cleanData.warnings.isEmpty()
+                  && cleanData.params.teeth == params.teeth,
+              QStringLiteral("project-params-untouched"),
+              cleanOk ? QStringLiteral("合法工程无修正（%1 条提醒）")
+                            .arg(cleanData.warnings.size())
+                      : cleanError);
+
+        // 没有 version 字段的老文件：能读，但要在日志里说清楚
+        const QString legacyPath = QDir(outDir).filePath(QStringLiteral("legacy.qgpj"));
+        const QByteArray legacy = QByteArrayLiteral(
+            "{\"app\":\"QtCAE-QuickGear\",\"params\":{\"teeth\":30,\"module\":3}}");
+        ProjectData legacyData;
+        QString     legacyError;
+        const bool  legacyOk = writeRaw(legacyPath, legacy)
+                               && loadProject(legacyPath, &legacyData, &legacyError);
+        check(legacyOk && legacyData.params.teeth == 30
+                  && legacyData.warnings.size() == 1,
+              QStringLiteral("project-legacy-version"),
+              legacyOk ? QStringLiteral("无版本号可读 · %1").arg(legacyData.warnings.value(0))
+                       : legacyError);
+
+        // 结果里没有逐齿应力：云图/报告图全靠这排数，当“有结果”打开就是交一张假图
+        const QString hollowPath = QDir(outDir).filePath(QStringLiteral("hollow-result.qgpj"));
+        const QByteArray hollow = QByteArrayLiteral(
+            "{\"app\":\"QtCAE-QuickGear\",\"version\":2,"
+            "\"params\":{\"teeth\":24,\"pinionTeeth\":12,\"module\":2},"
+            "\"hasResult\":true,"
+            "\"result\":{\"ok\":true,\"peakVonMises\":300,\"safetyFactor\":1.3,"
+            "\"toothStress\":[]}}");
+        ProjectData hollowData;
+        QString     hollowError;
+        const bool  hollowOk = writeRaw(hollowPath, hollow)
+                               && loadProject(hollowPath, &hollowData, &hollowError);
+        check(hollowOk && !hollowData.hasResult && hollowData.warnings.size() == 1
+                  && hollowData.warnings.value(0).contains(QStringLiteral("逐齿应力")),
+              QStringLiteral("project-result-without-tooth-stress"),
+              hollowOk ? QStringLiteral("按无结果打开 · %1").arg(hollowData.warnings.value(0))
+                       : hollowError);
     }
 
     // ---- 5. 授权：签发能通过、改一个字节就不通过 ----

@@ -744,7 +744,7 @@ bool MainWindow::loadFrom(const QString &path)
         return false;
     }
 
-    applyProject(data);
+    const QStringList issues = applyProject(data);
 
     m_projectPath = path;
     m_dirty       = false;
@@ -753,13 +753,23 @@ bool MainWindow::loadFrom(const QString &path)
     refreshActions();
 
     logLine(QStringLiteral("已打开工程：%1").arg(QDir::toNativeSeparators(path)));
-    m_stageLabel->setText(QStringLiteral("工程已载入%1")
-                              .arg(m_hasResult ? QStringLiteral("，含上次结果") : QString()));
+    QString summary = QStringLiteral("工程已载入%1")
+                          .arg(m_hasResult ? QStringLiteral("，含上次结果") : QString());
+    if (!issues.isEmpty())
+        summary += QStringLiteral(" · %1 处需留意（见日志）").arg(issues.size());
+    m_stageLabel->setText(summary);
     return true;
 }
 
-void MainWindow::applyProject(const ProjectData &data)
+QStringList MainWindow::applyProject(const ProjectData &data)
 {
+    // 打开别人转发的工程文件时，参数可能被手改过；改了什么就说出来，不吃闷亏
+    QStringList issues;
+    for (const QString &warning : data.warnings) {
+        logLine(QStringLiteral("工程参数已调整：%1").arg(warning));
+        issues.append(warning);
+    }
+
     m_paramPanel->setParams(data.params);
     m_noteEdit->setText(data.note);
     m_stressView->setGear(data.params.teeth, data.params.pinionTeeth, data.params.module);
@@ -776,6 +786,7 @@ void MainWindow::applyProject(const ProjectData &data)
             logLine(QStringLiteral("已载入几何：%1").arg(stlSummary(m_mesh)));
         } else {
             logLine(QStringLiteral("几何未能载入：%1").arg(mesh.error));
+            issues.append(QStringLiteral("几何未载入（%1）").arg(mesh.error));
         }
     }
 
@@ -794,6 +805,8 @@ void MainWindow::applyProject(const ProjectData &data)
         m_hasResult  = false;
         resetMetrics();
     }
+
+    return issues;
 }
 
 bool MainWindow::maybeSaveChanges()

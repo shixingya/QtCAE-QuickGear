@@ -85,7 +85,12 @@ private:
     bool loadFrom(const QString &path);
     bool importStlFrom(const QString &path);
     bool maybeSaveChanges();
-    void applyProject(const ProjectData &data);
+    /**
+     * 把读进来的工程铺到界面上，返回需要让用户知道的问题（参数被改、几何没找到）。
+     * 状态栏文案由调用方拼：以前这里自己 setText，紧接着被 openProject 的一行覆盖掉，
+     * “参数被修正 3 处”用户根本看不到。
+     */
+    QStringList applyProject(const ProjectData &data);
     void rememberRecent(const QString &path);
     void restoreSettings();
     void storeSettings();

@@ -2,6 +2,7 @@
 
 #include "core/ISolverBackend.h"
 
+#include <QFont>
 #include <QImage>
 #include <QString>
 
@@ -24,6 +25,14 @@ struct ReportContext
     QString note;          // 工况备注，可为空
     QString appVersion;
 };
+
+/**
+ * 报告用字体：按"能画汉字"挑候选，而不是赌某个字体一定装了。
+ *
+ * 写死 "Microsoft YaHei" 的后果是——机器上没这个字体时 Qt 默默回退，
+ * PDF 里一页中文变成豆腐块，而程序不会报错，用户只看到一份发不出去的报告。
+ */
+QFont reportFont(double pointSize, bool bold = false);
 
 /** 单页结论的 HTML（供预览或嵌入别处）；图片以 imageSrc 引用 */
 QString buildReportHtml(const ReportContext &ctx,

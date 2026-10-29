@@ -2,8 +2,12 @@
 
 #include <QAbstractTextDocumentLayout>
 #include <QDateTime>
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QFont>
+#include <QFontDatabase>
+#include <QFontMetrics>
 #include <QLocale>
 #include <QPageLayout>
 #include <QPageSize>
@@ -43,6 +47,40 @@ QString maskedMachine(const QString &machine)
 }
 
 } // namespace
+
+QFont reportFont(double pointSize, bool bold)
+{
+    // 候选按“汉字覆盖 + Windows 上常见”的顺序排；第一个真能用上的就拿它
+    static const QStringList candidates{
+        QStringLiteral("Microsoft YaHei"),
+        QStringLiteral("Microsoft YaHei UI"),
+        QStringLiteral("SimHei"),
+        QStringLiteral("SimSun"),
+        QStringLiteral("Noto Sans CJK SC"),
+        QStringLiteral("Source Han Sans SC"),
+    };
+    const QStringList installed = QFontDatabase().families();
+
+    QString chosen;
+    for (const QString &family : candidates) {
+        if (!installed.contains(family, Qt::CaseInsensitive))
+            continue;
+        QFont probe(family);
+        // 装了字体也可能缺字形（裁剪过的系统包），拿一个报告里必出现的字试一下
+        if (QFontMetrics(probe).inFont(QChar(0x9F7F))) {   // 齿
+            chosen = family;
+            break;
+        }
+    }
+
+    QFont font;
+    if (!chosen.isEmpty())
+        font.setFamily(chosen);
+    // 一个候选都没有就交给系统默认字体：至少还能显示，比空白强
+    font.setPointSizeF(pointSize);
+    font.setBold(bold);
+    return font;
+}
 
 QString conclusionText(const SolveResult &result, bool *passed)
 {
@@ -159,7 +197,15 @@ QString buildReportHtml(const ReportContext &ctx, const QString &imageSrc)
 
 bool writeReportPdf(const QString &path, const ReportContext &ctx, QString *error)
 {
-    QPdfWriter writer(path);
+    const QFileInfo target(path);
+    // 先写同目录的临时文件，成功后再换名。直接写目标文件有两个坑：
+    //   1. 覆盖上一份报告时若写入失败（文件开在阅读器里、盘满、目录被策略锁），
+    //      旧文件大小仍然 > 0，下面的存在性检查会把失败当成功报出去；
+    //   2. 中途失败会把上一份能用的报告写坏一半。
+    const QString tempPath = target.absolutePath() + QLatin1Char('/') + QLatin1Char('.')
+                             + target.fileName() + QStringLiteral(".part");
+
+    QPdfWriter writer(tempPath);
     writer.setPageSize(QPageSize(QPageSize::A4));
     writer.setPageMargins(QMarginsF(14.0, 13.0, 14.0, 13.0), QPageLayout::Millimeter);
     writer.setResolution(150);
@@ -167,7 +213,7 @@ bool writeReportPdf(const QString &path, const ReportContext &ctx, QString *erro
     writer.setCreator(QStringLiteral("QtCAE-QuickGear %1").arg(ctx.appVersion));
 
     QTextDocument doc;
-    doc.setDefaultFont(QFont(QStringLiteral("Microsoft YaHei"), 8));
+    doc.setDefaultFont(reportFont(8.0));
     doc.addResource(QTextDocument::ImageResource, QUrl(QStringLiteral("quickgear:stress.png")),
                     ctx.stressImage);
     doc.setHtml(buildReportHtml(ctx));
@@ -178,6 +224,13 @@ bool writeReportPdf(const QString &path, const ReportContext &ctx, QString *erro
     const QSizeF body(pageRect.width(), pageRect.height());
 
     QPainter painter(&writer);
+    if (!painter.isActive()) {
+        // 连临时文件都开不出来：目录不存在/不可写，或磁盘已满
+        QFile::remove(tempPath);
+        *error = QStringLiteral("无法写入 PDF，请检查目录写权限与剩余空间：%1")
+                     .arg(QDir::toNativeSeparators(target.absolutePath()));
+        return false;
+    }
     doc.documentLayout()->setPaintDevice(painter.device());
     doc.setPageSize(body);
 
@@ -194,9 +247,24 @@ bool writeReportPdf(const QString &path, const ReportContext &ctx, QString *erro
     }
     painter.end();
 
-    const QFileInfo info(path);
-    if (!info.exists() || info.size() == 0) {
-        *error = QStringLiteral("PDF 未写出，请检查目录写权限：%1").arg(info.absolutePath());
+    const QFileInfo tempInfo(tempPath);
+    if (!tempInfo.exists() || tempInfo.size() == 0) {
+        QFile::remove(tempPath);
+        *error = QStringLiteral("PDF 未写出，请检查目录写权限：%1")
+                     .arg(QDir::toNativeSeparators(target.absolutePath()));
+        return false;
+    }
+
+    // Windows 的 rename 不覆盖已有文件，先删旧的；删不掉就是有人正开着它
+    if (QFile::exists(path) && !QFile::remove(path)) {
+        QFile::remove(tempPath);
+        *error = QStringLiteral("无法覆盖 %1：文件可能正被 PDF 阅读器占用，请关闭后重试")
+                     .arg(QDir::toNativeSeparators(path));
+        return false;
+    }
+    if (!QFile::rename(tempPath, path)) {
+        QFile::remove(tempPath);
+        *error = QStringLiteral("PDF 换名失败：%1").arg(QDir::toNativeSeparators(path));
         return false;
     }
     return true;
@@ -224,9 +292,7 @@ QImage watermarkTrial(const QImage &image, const QString &text)
     QPainter painter(&out);
     painter.setRenderHint(QPainter::Antialiasing, true);
 
-    QFont font(QStringLiteral("Microsoft YaHei"));
-    font.setPointSizeF(qMax(12.0, out.width() / 24.0));
-    font.setBold(true);
+    QFont font = reportFont(qMax(12.0, out.width() / 24.0), true);
     painter.setFont(font);
     // 云图背景是深色，水印用浅色低透明，既不遮数据又能一眼看出来
     painter.setPen(QColor(0xE2, 0xE8, 0xF0, 70));
