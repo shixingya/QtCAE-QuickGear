@@ -1615,13 +1615,18 @@ int main(int argc, char *argv[])
               .arg(rowErrors.size())
               .arg(rowErrors.value(0)));
 
-    const QVector<BatchResult> batch = LicenseBatch::issueAll(orders, licenseDir, false, nullptr);
+    // 交付单用例单开一个目录：签发目录里可能残留着上次跑留下的同名文件与旧交付单，
+    // 断言就会变成“看这次跑之前目录里有什么”——自检跑两遍结论不一样是不行的
+    const QString batchDir = QDir(outDir).filePath(QStringLiteral("issued-batch"));
+    QDir(batchDir).removeRecursively();
+
+    const QVector<BatchResult> batch = LicenseBatch::issueAll(orders, batchDir, false, nullptr);
     int    writtenCount = 0;
     for (const BatchResult &result : batch) {
         if (result.ok() && QFileInfo::exists(result.file))
             ++writtenCount;
     }
-    const QString manifestPath = QDir(licenseDir).filePath(QStringLiteral("manifest.csv"));
+    const QString manifestPath = QDir(batchDir).filePath(QStringLiteral("manifest.csv"));
     int           manifestRows = -1;
     bool          manifestBom  = false;
     QString       manifestHead;
@@ -1652,6 +1657,50 @@ int main(int argc, char *argv[])
               .arg(manifestRows)
               .arg(manifestBom ? QStringLiteral("有") : QStringLiteral("无"))
               .arg(manifestAlgCell));
+
+    // 同一目录再签一批（现场的常态：先签三家，过两天补两家）。
+    // 文件和账都得留住：同一张单重签不能把上次那份顶掉（交付单上的 sig8 会对不上），
+    // 交付单也不是本次运行的打印稿——直接 Truncate 后目录里 5 个 .qglic、账上只剩 2 行。
+    {
+        const QString againDir = QDir(outDir).filePath(QStringLiteral("issued-again"));
+        QDir(againDir).removeRecursively();
+        QStringList   firstErrors;
+        const QVector<BatchResult> firstRun =
+            LicenseBatch::issueAll(orders.mid(0, 1), againDir, false, &firstErrors);
+
+        // 同一张单再签一次 + 再加一家（“某某传动, 二分厂”带逗号，CSV 与文件名都得撑住）
+        QVector<BatchOrder> more;
+        more << orders.value(0) << orders.value(1);
+
+        QStringList moreErrors;
+        const QVector<BatchResult> secondRun =
+            LicenseBatch::issueAll(more, againDir, false, &moreErrors);
+
+        const QString firstName = QFileInfo(firstRun.value(0).file).fileName();
+        const QString againName = QFileInfo(secondRun.value(0).file).fileName();
+        const int     qglicCount =
+            QDir(againDir).entryList({QStringLiteral("*.qglic")}, QDir::Files).size();
+
+        int     rows = -1;
+        QString manifestText;
+        QFile   merged(QDir(againDir).filePath(QStringLiteral("manifest.csv")));
+        if (merged.open(QIODevice::ReadOnly)) {
+            const QByteArray bytes = merged.readAll();
+            merged.close();
+            rows         = bytes.count('\n') - 1;   // 减表头
+            manifestText = QString::fromUtf8(bytes);
+        }
+
+        check(firstErrors.isEmpty() && moreErrors.isEmpty() && !firstName.isEmpty()
+                  && firstName != againName && qglicCount == 3 && rows == 3
+                  && manifestText.contains(firstName),
+              QStringLiteral("license-batch-same-dir"),
+              QStringLiteral("%1 → %2 · 目录 %3 份 · 交付单 %4 行 · 旧行%5")
+                  .arg(firstName, againName)
+                  .arg(qglicCount)
+                  .arg(rows)
+                  .arg(manifestText.contains(firstName) ? QStringLiteral("在") : QStringLiteral("丢了")));
+    }
 
     // dry-run 一旦落了盘就不叫试跑：客户会收到两份不同到期日的授权
     const QString dryDir = QDir(outDir).filePath(QStringLiteral("issued-dry"));
