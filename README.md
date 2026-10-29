@@ -166,7 +166,7 @@ QtCAE-QuickGear/
 - [x] 演示页：3D 预览 + 每日 10 次试用 + 设备码引导
 - [x] Qt 壳工程开源（主窗口、参数面板、云图视图、求解线程、激活对话框）
 - [x] 客户端激活链路：机器码生成 + 授权文件签名 / 验签 / 导入
-- [x] 授权签发工具 `qglicense`（machine / keygen / issue / batch / audit / verify / install）
+- [x] 授权签发工具 `qglicense`（machine / keygen / pubkey / issue / batch / audit / verify / install）
 - [x] 免安装包（手工部署，干净 PATH 可直接启动）
 - [x] STL 导入（二进制 / ASCII）+ 未求解时的几何投影预览
 - [x] 结果导出：云图 PNG / 单页 A4 结论 PDF（未授权自动加水印）

@@ -191,6 +191,8 @@ QVector<BatchResult> LicenseBatch::issueAll(const QVector<BatchOrder> &orders,
     for (const BatchOrder &order : orders) {
         BatchResult result;
         result.order = order;
+        // 算法跟着这一次调用走，不跟单个订单走；dry-run 也要填，交付单上的计划得能对得上
+        result.alg = signingSeed.isEmpty() ? QStringLiteral("hmac") : QStringLiteral("ed25519");
 
         QString stem = fileNameFor(order);
         if (stem.endsWith(QStringLiteral(".qglic"), Qt::CaseInsensitive))
@@ -245,7 +247,7 @@ QString LicenseBatch::manifestPath(const QString &outDir)
 QByteArray LicenseBatch::manifestCsv(const QVector<BatchResult> &results)
 {
     QStringList lines;
-    lines << QStringLiteral("machine,licensee,edition,issued,expire,file,status,sig8,error");
+    lines << QStringLiteral("machine,licensee,edition,issued,expire,file,status,alg,sig8,error");
 
     for (const BatchResult &result : results) {
         const BatchOrder &order = result.order;
@@ -258,6 +260,7 @@ QByteArray LicenseBatch::manifestCsv(const QVector<BatchResult> &results)
                                             : QStringLiteral("perpetual"),
                      csvField(QFileInfo(result.file).fileName()),
                      result.ok() ? QStringLiteral("OK") : QStringLiteral("FAIL"),
+                     result.alg,
                      result.sig.left(8),
                      csvField(result.error),
                  }

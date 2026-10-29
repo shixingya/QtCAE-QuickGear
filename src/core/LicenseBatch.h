@@ -27,6 +27,7 @@ struct BatchResult
     BatchOrder order;
     QString    file;                // 写出的授权文件（失败为空）
     QString    sig;                 // base64 签名
+    QString    alg = QStringLiteral("ed25519");   // 本次用的算法，写进交付单备查
     QString    error;               // 失败原因
 
     bool ok() const { return error.isEmpty(); }
@@ -74,7 +75,7 @@ public:
 
     /**
      * 交付单 CSV（UTF-8 带 BOM，Excel 直接双击不乱码）。
-     * 列：machine,licensee,edition,issued,expire,file,status,sig8,error
+     * 列：machine,licensee,edition,issued,expire,file,status,alg,sig8,error
      */
     static QByteArray manifestCsv(const QVector<BatchResult> &results);
 

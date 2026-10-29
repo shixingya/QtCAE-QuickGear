@@ -174,6 +174,14 @@ public:
     /** 签名算法的可读名称，给界面、报告与命令行共用一份措辞 */
     static QString algName(const QString &alg);
 
+    /**
+     * 当前读写都认的授权文件格式版本。
+     * v1 = HMAC，无 alg 字段；v2 = 带 alg，ed25519 或 hmac。
+     * 读到比这更大的 v 时一律拒结并提示升级客户端——将来真改了签名串
+     * 顺序或字段含义，老客户端报“版本过新”比报“签名无效”少一轮口水。
+     */
+    static constexpr int kFormatVersion = 2;
+
 private:
     static QByteArray rawMachineId();
     static QString formatCode(const QString &hex);

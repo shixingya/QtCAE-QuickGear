@@ -210,6 +210,18 @@ LicenseInfo LicenseManager::parseFile(const QString &path, bool checkMachine)
     }
 
     const QJsonObject obj = doc.object();
+
+    // 版本先卡：v 比本客户端认识的新时，后面的字段怎么解都是猜。
+    // 这里不能默默按旧版读，否则客户拿到的是“签名无效”而非“去升级”。
+    const int formatVersion = obj.value(QStringLiteral("v")).toInt(1);
+    if (formatVersion > kFormatVersion) {
+        info.state   = LicenseState::Unreadable;
+        info.message = QStringLiteral("授权文件格式为 v%1，本客户端只支持到 v%2：请升级客户端后再导入")
+                           .arg(formatVersion)
+                           .arg(kFormatVersion);
+        return info;
+    }
+
     info.licensee = obj.value(QStringLiteral("licensee")).toString();
     info.edition  = obj.value(QStringLiteral("edition")).toString(QStringLiteral("pro"));
     info.issued   = QDate::fromString(obj.value(QStringLiteral("issued")).toString(), Qt::ISODate);

@@ -361,6 +361,11 @@ void MainWindow::refreshLicenseBadge()
         m_licenseLabel->setStyleSheet(QStringLiteral("color:#DC2626;"));
         break;
     case LicenseState::Unreadable:
+        // 文件在、但读不出或格式对不上（含比本客户端新的版本）：这比“没装授权”严重，
+        // 不能跟试用挂同一个标签，否则客户会以为只是没激活，反复找你要授权
+        m_licenseLabel->setText(QStringLiteral("授权：文件无法使用"));
+        m_licenseLabel->setStyleSheet(QStringLiteral("color:#DC2626;"));
+        break;
     case LicenseState::Missing:
         m_licenseLabel->setText(QStringLiteral("授权：未激活（试用版）"));
         m_licenseLabel->setStyleSheet(QStringLiteral("color:#B4692F;"));

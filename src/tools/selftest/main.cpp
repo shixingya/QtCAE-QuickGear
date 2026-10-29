@@ -714,6 +714,33 @@ int main(int argc, char *argv[])
                   .arg(algOfHmac)
                   .arg(verOfHmac)
                   .arg(LicenseManager::stateName(hmacInfo.state)));
+
+        // 未来格式：v 大于本客户端认识的版本时必须说“升级客户端”，
+        // 而不是让客户拿着正确的文件看到“签名无效”
+        const QString futurePath = QDir(licenseDir).filePath(QStringLiteral("self-future.qglic"));
+        {
+            QJsonObject obj;
+            obj.insert(QStringLiteral("v"), LicenseManager::kFormatVersion + 1);
+            obj.insert(QStringLiteral("alg"), QStringLiteral("ed25519"));
+            obj.insert(QStringLiteral("machine"), edMachine);
+            obj.insert(QStringLiteral("licensee"), QStringLiteral("未来格式"));
+            obj.insert(QStringLiteral("edition"), edEdition);
+            obj.insert(QStringLiteral("issued"), issuedOn.toString(Qt::ISODate));
+            obj.insert(QStringLiteral("expire"), expireOn.toString(Qt::ISODate));
+            obj.insert(QStringLiteral("sig"), QString(88, QLatin1Char('A')));
+
+            QFile f(futurePath);
+            if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                f.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+                f.close();
+            }
+        }
+        const LicenseInfo future = LicenseManager::parseFile(futurePath, true);
+        check(future.state == LicenseState::Unreadable
+                  && future.message.contains(
+                      QStringLiteral("v%1").arg(LicenseManager::kFormatVersion + 1))
+                  && future.message.contains(QStringLiteral("升级客户端")),
+              QStringLiteral("license-format-too-new"), future.message);
     }
 
     // 台账：表头 + 注释 + 一行连写小写机器码 + 一行带逗号的公司名 + 一行抄错的码
@@ -744,6 +771,8 @@ int main(int argc, char *argv[])
     const QString manifestPath = QDir(licenseDir).filePath(QStringLiteral("manifest.csv"));
     int           manifestRows = -1;
     bool          manifestBom  = false;
+    QString       manifestHead;
+    QString       manifestAlgCell;
     {
         QFile manifest(manifestPath);
         if (manifest.open(QIODevice::ReadOnly)) {
@@ -751,14 +780,25 @@ int main(int argc, char *argv[])
             manifest.close();
             manifestRows = bytes.count('\n') - 1;   // 减表头
             manifestBom  = bytes.startsWith("\xEF\xBB\xBF");
+
+            const QStringList lines =
+                QString::fromUtf8(bytes.mid(3)).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+            manifestHead = lines.value(0);
+            // 第一条数据行的 status 后面那一格就是 alg：交付单要能自证用了哪种算法
+            const QStringList firstRow =
+                lines.value(1).split(QLatin1Char(','), Qt::KeepEmptyParts);
+            manifestAlgCell = firstRow.value(7);
         }
     }
-    check(writtenCount == 2 && manifestRows == 2 && manifestBom,
+    check(writtenCount == 2 && manifestRows == 2 && manifestBom
+              && manifestHead.endsWith(QStringLiteral("status,alg,sig8,error"))
+              && manifestAlgCell == QLatin1String("hmac"),
           QStringLiteral("license-batch-issue"),
-          QStringLiteral("写出 %1 份 · 交付单 %2 行 · BOM %3")
+          QStringLiteral("写出 %1 份 · 交付单 %2 行 · BOM %3 · 算法列=%4")
               .arg(writtenCount)
               .arg(manifestRows)
-              .arg(manifestBom ? QStringLiteral("有") : QStringLiteral("无")));
+              .arg(manifestBom ? QStringLiteral("有") : QStringLiteral("无"))
+              .arg(manifestAlgCell));
 
     // dry-run 一旦落了盘就不叫试跑：客户会收到两份不同到期日的授权
     const QString dryDir = QDir(outDir).filePath(QStringLiteral("issued-dry"));

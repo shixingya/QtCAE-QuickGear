@@ -205,6 +205,9 @@ cmake -S . -B build -DQTG_LICENSE_PUBKEY="<上一步的 PUBLIC>"
 ```
 
 - 私钥文件支持 base64 / 64 位 hex / 原始 32 字节三种写法，`seedFromText()` 都能认。
+- 换机器重建客户端时，不用翻旧提交找公钥：
+  `qglicense pubkey --key <私钥>` 直接输出 `PUBLIC=` 与可粘贴的 `CMAKE=-DQTG_LICENSE_PUBKEY=...`，
+  同时告诉你它跟当前构建内置的公钥是 `MATCH` 还是 `DIFFER`。
 - 仓库里 `QTG_LICENSE_PUBKEY` / `QTG_SIGNING_SEED` 的默认值是**公开的演示对**，
   只为让新克隆能开箱跑通“签发 → 安装 → 验签”。真发版必须换成你自己 `keygen` 出来的那套。
 - `qglicense issue` 签完会自动比对：这把私钥派生出的公钥和当前构建内置的公钥不一致时
@@ -290,7 +293,7 @@ issued/
 ├─ qglic-某某机械厂-2027-10-29.qglic
 ├─ qglic-某某传动-二分厂-2027-06-30.qglic
 ├─ qglic-某某模具厂-2026-12-13.qglic
-└─ manifest.csv     ← 交付单：机器码/授权对象/签发日/到期日/文件名/签名前 8 位/状态/错误
+└─ manifest.csv     ← 交付单：机器码/授权对象/签发日/到期日/文件名/状态/算法/签名前 8 位/错误
 ```
 
 `manifest.csv` 是带 BOM 的 UTF-8，Excel 双击直接看、不乱码。
@@ -364,6 +367,11 @@ v0.3 及更早的文件没有 `alg` 字段，按 HMAC 读取，照旧能用：
 `expire` 留空表示**永久授权**，此时 `daysLeft` 固定为 `-1`、徽标不会进入到期提醒；
 `audit` 里这类会显示 `EXPIRES=perpetual DAYS=-1`，不计入续费清单。
 
+读到 `v` 比客户端支持的版本（当前 `LicenseManager::kFormatVersion = 2`）更大时，
+客户端直接报「授权文件格式为 vN，本客户端只支持到 v2：请升级客户端后再导入」，
+不会拿旧规则去猜——将来真改了签名串或字段含义，客户看到的应该是「去升级」
+而不是令人一头雾水的「签名无效」。
+
 ### ⚠️ 关于签名强度（务必读完再商用）
 
 **这层挡的是什么、挡不住什么**，先说清楚：
@@ -415,7 +423,7 @@ v0.3 及更早的文件没有 `alg` 字段，按 HMAC 读取，照旧能用：
 - [x] 求解流程（QThread + 进度条 + 结果回填）
 - [x] 云图视图（按齿着色 + 色标图例 + MOCK 角标）
 - [x] 机器码生成、Ed25519 公钥签名（旧 HMAC 授权仍可验）、验签与导入
-- [x] `qglicense` 签发工具（machine / keygen / issue / batch / audit / verify / install）
+- [x] `qglicense` 签发工具（machine / keygen / pubkey / issue / batch / audit / verify / install）
 - [x] 免安装包部署（手工部署 9 个文件，干净 PATH 可启动）
 - [x] STL 导入（二进制 / ASCII）+ 未求解时的几何预览
 - [x] 结论页导出（单页 A4 PDF）/ 云图导出（PNG），未授权自动加水印

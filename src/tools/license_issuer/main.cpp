@@ -52,6 +52,7 @@ void printUsage()
           << "Usage:\n"
           << "  qglicense machine\n"
           << "  qglicense keygen [--out <private.key>]\n"
+          << "  qglicense pubkey [--key <private.key>]\n"
           << "  qglicense issue --licensee <name> [--edition pro] [--days 365]\n"
           << "                 [--expire 2027-12-31] [--issued 2026-10-28]\n"
           << "                 [--machine <CODE>] [--out <file>] [--key <file>]\n"
@@ -594,6 +595,35 @@ int doInstall(const QStringList &args)
     return info.valid ? 0 : 1;
 }
 
+int doPubkey(const QHash<QString, QString> &opts)
+{
+    // 从私钥反推公钥：换机器重建客户端时，公钥填什么不该靠翻旧提交
+    QString         warning;
+    const QByteArray seed = signingSeed(opts, &warning);
+    if (seed.isEmpty()) {
+        err() << "ERROR=" << warning << "\n";
+        err().flush();
+        return 2;
+    }
+    QByteArray pub;
+    if (!Ed25519::derivePublicKey(seed, &pub)) {
+        err() << "ERROR=cannot derive public key from this seed\n";
+        err().flush();
+        return 3;
+    }
+
+    const QByteArray embedded = LicenseManager::signingPublicKey();
+    out() << "PUBLIC=" << QString::fromLatin1(pub.toBase64()) << "\n"
+          << "EMBEDDED="
+          << (embedded.isEmpty() ? QStringLiteral("NO")
+                                 : (embedded == pub ? QStringLiteral("MATCH")
+                                                    : QStringLiteral("DIFFER")))
+          << "\n"
+          << "CMAKE=-DQTG_LICENSE_PUBKEY=" << pub.toBase64() << "\n";
+    out().flush();
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char *argv[])
@@ -620,6 +650,8 @@ int main(int argc, char *argv[])
         return doMachine();
     if (command == QLatin1String("keygen"))
         return doKeygen(parseOptions(args, nullptr));
+    if (command == QLatin1String("pubkey"))
+        return doPubkey(parseOptions(args, nullptr));
     if (command == QLatin1String("issue"))
         return doIssue(args);
     if (command == QLatin1String("batch"))
