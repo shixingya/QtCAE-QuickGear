@@ -15,6 +15,7 @@
 #include <QApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QDoubleSpinBox>
 #include <QFile>
 #include <QFileInfo>
 #include <QFont>
@@ -716,6 +717,50 @@ int main(int argc, char *argv[])
               QStringLiteral("2.25 / 87.5 / 18.25 原样存住 · 2.256 → %1（%2 条提醒）")
                   .arg(rounded, 0, 'f', 2)
                   .arg(notes.size()));
+    }
+
+    // ---- 4h. 报告里的输入参数必须是算这件东西时用的那个数 ----
+    // 报告是交付物：甲方拿着它复盘。以前面板能填 0.01 mm，报告却按 1 位印，
+    // b=18.25 在 PDF 上写成 18.3，用 18.3 回去算永远对不上报告里的 n。
+    {
+        GearParams shown;
+        shown.teeth       = 24;
+        shown.pinionTeeth = 30;
+        shown.module      = 2.25;
+        shown.torque      = 87.5;
+        shown.faceWidth   = 18.25;
+
+        ReportContext printed;
+        printed.params     = shown;
+        printed.appVersion = QCoreApplication::applicationVersion();
+        const QString html = buildReportHtml(printed);
+
+        const bool digitsOk = html.contains(QStringLiteral(">2.25</b>"))
+                              && html.contains(QStringLiteral(">87.5</b>"))
+                              && html.contains(QStringLiteral(">18.25</b>"));
+        check(digitsOk, QStringLiteral("report-params-digits"),
+              QStringLiteral("报告印 m=2.25 / T=87.5 / b=18.25（与面板、日志同一份位数）"));
+
+        // 位数表本身也得跟界面控件对齐：光改常量只是换个地方漂
+        ParamPanel panel;
+        auto decimalsOf = [&panel](const char *name) {
+            auto *box = panel.findChild<QDoubleSpinBox *>(QLatin1String(name));
+            return box ? box->decimals() : -1;
+        };
+        const int panelModule = decimalsOf("moduleSpin");
+        const int panelTorque = decimalsOf("torqueSpin");
+        const int panelWidth  = decimalsOf("faceWidthSpin");
+        check(panelModule == GearDisplay::kModuleDecimals
+                  && panelTorque == GearDisplay::kTorqueDecimals
+                  && panelWidth == GearDisplay::kFaceWidthDecimals,
+              QStringLiteral("display-digits-single-source"),
+              QStringLiteral("面板 %1/%2/%3 · GearDisplay %4/%5/%6")
+                  .arg(panelModule)
+                  .arg(panelTorque)
+                  .arg(panelWidth)
+                  .arg(GearDisplay::kModuleDecimals)
+                  .arg(GearDisplay::kTorqueDecimals)
+                  .arg(GearDisplay::kFaceWidthDecimals));
     }
 
     // 临时文件不能留在导出目录里：用户看到 .report.pdf.part 会以为导出出了问题

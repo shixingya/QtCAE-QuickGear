@@ -36,7 +36,8 @@ ParamPanel::ParamPanel(QWidget *parent)
     m_module->setSingleStep(0.5);
     // 小数位就是精度：spinbox 装不下的值会被当场四舍五入，而模数在 σ ∝ 1/m³ 里
     // 当分母——1 位小数把 2.25 变成 2.3，峰值应力就少算 6%。计量到 0.01 mm 就够。
-    m_module->setDecimals(2);
+    // 位数写在 GearDisplay 里：日志、报告、这里必须是同一份，否则报告上的数复盘不出来。
+    m_module->setDecimals(GearDisplay::kModuleDecimals);
     m_module->setSuffix(QStringLiteral(" mm"));
     m_module->setValue(2.0);
 
@@ -45,7 +46,7 @@ ParamPanel::ParamPanel(QWidget *parent)
     m_torque->setRange(GearParamLimits::kTorqueMin, GearParamLimits::kTorqueMax);
     m_torque->setSingleStep(5.0);
     // 扭矩直接乘在 σ 上：整数位会把 87.5 N·m 变成 88（–0.6%），留一位小数
-    m_torque->setDecimals(1);
+    m_torque->setDecimals(GearDisplay::kTorqueDecimals);
     m_torque->setSuffix(QStringLiteral(" N·m"));
     m_torque->setValue(80.0);
 
@@ -53,7 +54,7 @@ ParamPanel::ParamPanel(QWidget *parent)
     m_faceWidth->setObjectName(QStringLiteral("faceWidthSpin"));
     m_faceWidth->setRange(GearParamLimits::kFaceWidthMin, GearParamLimits::kFaceWidthMax);
     m_faceWidth->setSingleStep(1.0);
-    m_faceWidth->setDecimals(2);
+    m_faceWidth->setDecimals(GearDisplay::kFaceWidthDecimals);
     m_faceWidth->setSuffix(QStringLiteral(" mm"));
     m_faceWidth->setValue(20.0);
 

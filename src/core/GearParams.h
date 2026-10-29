@@ -64,6 +64,21 @@ struct GearParams
 };
 
 /**
+ * 参数在各处怎么印：界面 spinbox 的小数位、求解日志、PDF 报告共用这一份。
+ *
+ * 小数位不是排版偏好，它就是精度——spinbox 装不下的值会被当场四舍五入。
+ * 以前三处各写一套：面板能填到 0.01 mm，日志与报告却只印 1 位，客户拿着报告上
+ * 的 “b = 18.3 mm” 回去复盘，算不出报告里那个安全系数，因为真正算的是 18.25。
+ * 光看报告永远发现不了——数字看着都对，只是不是这一份。
+ */
+struct GearDisplay
+{
+    static constexpr int kModuleDecimals    = 2;  // 模数：σ ∝ 1/m³，差 1% 就换一档结论
+    static constexpr int kTorqueDecimals    = 1;  // 扭矩：直接乘在 σ 上
+    static constexpr int kFaceWidthDecimals = 2;  // 齿宽：决定 b/m 提醒与尺寸复核
+};
+
+/**
  * 把外部来源（工程文件 / 命令行 / 手改过的 JSON）的参数夹进合法区间。
  *
  * 不做静默修正：返回被改动的字段与原始值，调用方负责告诉用户“我改了你的数”。

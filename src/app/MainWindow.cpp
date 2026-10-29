@@ -534,14 +534,14 @@ void MainWindow::runSolve()
     m_stageLabel->setText(QStringLiteral("准备求解…"));
 
     const GearParams params = m_paramPanel->params();
-    // 日志里的位数跟着面板走：面板能填到 0.01 mm / 0.1 N·m，日志却只印 1 位/
-    // 整数，事后对账时会发现“日志里的数和报告里的不是一个”
+    // 日志里的位数跟着 GearDisplay 走（面板、日志、报告共用一份）：面板能填到 0.01 mm /
+    // 0.1 N·m，日志却只印 1 位/整数，事后对账时会发现“日志里的数和报告里的不是一个”
     logLine(QStringLiteral("开始求解 · z=%1/%2 · m=%3 · T=%4 N·m · b=%5 mm · %6")
                 .arg(params.teeth)
                 .arg(params.pinionTeeth)
-                .arg(params.module, 0, 'f', 2)
-                .arg(params.torque, 0, 'f', 1)
-                .arg(params.faceWidth, 0, 'f', 2)
+                .arg(params.module, 0, 'f', GearDisplay::kModuleDecimals)
+                .arg(params.torque, 0, 'f', GearDisplay::kTorqueDecimals)
+                .arg(params.faceWidth, 0, 'f', GearDisplay::kFaceWidthDecimals)
                 .arg(params.material));
 
     auto *thread = new QThread;
