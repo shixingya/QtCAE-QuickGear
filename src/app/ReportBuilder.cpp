@@ -1,5 +1,7 @@
 #include "ReportBuilder.h"
 
+#include "StressScale.h"
+
 #include <QAbstractTextDocumentLayout>
 #include <QDateTime>
 #include <QDir>
@@ -104,6 +106,12 @@ QString buildReportHtml(const ReportContext &ctx, const QString &imageSrc)
 
     bool passed = false;
     const QString verdict = conclusionText(r, &passed);
+
+    // 云图量程写死 320（与网页端同一套口径），峰值却能到 640：超了之后图上最热的
+    // 几个齿全是一个颜色，不写清楚客户会把“最红”读成“最高就 320”。
+    // 量程为 0（手改过的工程文件）时回落到默认值，不在报告里印一个“量程 0”。
+    const double ceiling = r.stressCeiling > 0.0 ? r.stressCeiling : 320.0;
+    const QString saturationNote = stressscale::saturationNote(r.peakVonMises, ceiling);
     const QString verdictColor = passed ? QStringLiteral("#0B7A5B")
                                         : (r.safetyFactor >= 1.0 ? QStringLiteral("#A2652A")
                                                                  : QStringLiteral("#B7352F"));
@@ -167,7 +175,11 @@ QString buildReportHtml(const ReportContext &ctx, const QString &imageSrc)
                 QStringLiteral("%1 / %2")
                     .arg(QLocale().toString(r.elements), QLocale().toString(r.nodes)));
     body += row(QStringLiteral("求解耗时 (s)"), QString::number(r.solveSeconds, 'f', 2));
-    body += row(QStringLiteral("云图量程 (MPa)"), QString::number(r.stressCeiling, 'f', 0));
+    body += row(QStringLiteral("云图量程 (MPa)"),
+                saturationNote.isEmpty()
+                    ? QString::number(ceiling, 'f', 0)
+                    : QStringLiteral("%1（%2）")
+                          .arg(QString::number(ceiling, 'f', 0), saturationNote));
     body += row(QStringLiteral("求解后端"), r.backend);
     body += QStringLiteral("</table>");
 

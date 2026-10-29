@@ -1,5 +1,7 @@
 #include "StressView.h"
 
+#include "StressScale.h"
+
 #include <QFontMetrics>
 #include <QLinearGradient>
 #include <QLocale>
@@ -54,6 +56,7 @@ void StressView::setResult(const SolveResult &result)
 {
     m_solved      = result.ok;
     m_ceiling     = result.stressCeiling > 0.0 ? result.stressCeiling : 320.0;
+    m_peak        = result.peakVonMises;
     m_toothStress = result.toothStress;
     update();
 }
@@ -61,6 +64,7 @@ void StressView::setResult(const SolveResult &result)
 void StressView::clearResult()
 {
     m_solved = false;
+    m_peak   = 0.0;
     m_toothStress.clear();
     update();
 }
@@ -144,6 +148,35 @@ void StressView::paintEvent(QPaintEvent *)
         painter.setPen(QColor(0xE8, 0xA0, 0x9A));
         painter.drawText(badgeRect, Qt::AlignCenter, badge);
     }
+
+    drawSaturationNote(painter, area);
+}
+
+/**
+ * 峰值超过色标上限时的标注。
+ *
+ * 色标固定 320 是为了与网页端同一套口径，但峰值可以到 640（截断线）。超了之后
+ * 图上最热的几个齿全是最红，客户会把“最红”读成色标顶端的 320。这句话就在图里，
+ * 导出 PNG / 报告插图也带着它走。
+ */
+void StressView::drawSaturationNote(QPainter &painter, const QRectF &area)
+{
+    const QString note = stressscale::saturationNote(m_peak, m_ceiling);
+    if (!m_solved || note.isEmpty() || area.height() < 80)
+        return;
+
+    QFont f = font();
+    f.setPointSizeF(8.0);
+    painter.setFont(f);
+    const QFontMetrics fm(f);
+    const QRectF strip(area.left(), area.bottom() - 24.0, area.width(), 20.0);
+
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(0xB4, 0x69, 0x2F, 200));
+    painter.drawRect(strip);
+    painter.setPen(QColor(0xFF, 0xF4, 0xE8));
+    painter.drawText(strip, Qt::AlignCenter,
+                     fm.elidedText(note, Qt::ElideRight, int(strip.width()) - 10));
 }
 
 void StressView::drawGear(QPainter &painter, const QRectF &area)
@@ -327,14 +360,19 @@ void StressView::drawLegend(QPainter &painter, const QRectF &area)
                      Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("σv / MPa"));
 
     const double maxValue = m_solved ? m_ceiling : 320.0;
+    const bool   saturated = m_solved && stressscale::saturated(m_peak, m_ceiling);
     const int ticks = 4;
     for (int i = 0; i <= ticks; ++i) {
         const double ratio = double(i) / ticks;
         const double y     = bar.bottom() - bar.height() * ratio;
         painter.setPen(QPen(QColor(0x8A, 0x97, 0xA6), 1.0));
         painter.drawLine(QPointF(bar.right(), y), QPointF(bar.right() + 4, y));
+        // 顶到上限时顶端写个“≥”：否则客户会把“最红”当成恰好等于色标顶值
+        const QString label =
+            (saturated && i == ticks)
+                ? QStringLiteral("≥%1").arg(QString::number(maxValue * ratio, 'f', 0))
+                : QString::number(maxValue * ratio, 'f', 0);
         painter.drawText(QRectF(bar.right() + 6, y - 8, area.width() - 16, 16),
-                         Qt::AlignLeft | Qt::AlignVCenter,
-                         QString::number(maxValue * ratio, 'f', 0));
+                         Qt::AlignLeft | Qt::AlignVCenter, label);
     }
 }

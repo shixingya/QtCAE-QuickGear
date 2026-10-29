@@ -1,6 +1,7 @@
 #include "app/ReportBuilder.h"
 #include "app/ScreenFit.h"
 #include "app/SolveWorker.h"
+#include "app/StressScale.h"
 #include "app/StressView.h"
 #include "core/Ed25519.h"
 #include "core/LicenseBatch.h"
@@ -597,6 +598,64 @@ int main(int argc, char *argv[])
     }
     check(pdfPages == 1, QStringLiteral("export-pdf-single-page"),
           QStringLiteral("%1 页").arg(pdfPages));
+
+    // ---- 4e. 云图饱和：峰值超出色标上限时必须说出来 ----
+    // 色标固定 320（与网页端同一套口径），峰值却可以到 640。超了之后图上最热的
+    // 几个齿全是最红：不说一句，客户会把“最红”读成“最高就 320”。
+    check(stressscale::saturated(480.0, 320.0)
+              && !stressscale::saturated(300.0, 320.0)
+              && !stressscale::saturated(999.0, 0.0),
+          QStringLiteral("stress-scale-saturation"),
+          QStringLiteral("480/320 报饱和 · 300 不报 · 量程未知不报假"));
+
+    const QString normalHtml = buildReportHtml(ctx);
+    ReportContext saturatedCtx = ctx;
+    saturatedCtx.result.peakVonMises  = 480.0;
+    saturatedCtx.result.stressCeiling = 320.0;
+    const QString saturatedHtml = buildReportHtml(saturatedCtx);
+    check(saturatedHtml.contains(QStringLiteral("超出色标量程"))
+              && saturatedHtml.contains(QStringLiteral("480"))
+              && !normalHtml.contains(QStringLiteral("超出色标量程")),
+          QStringLiteral("report-saturation-note"),
+          stressscale::saturationNote(480.0, 320.0));
+
+    // 多出来的那行必须仍能排进一页：它就在云图上方，最容易把单页结论挤成两页
+    const QString satPdfPath = QDir(outDir).filePath(QStringLiteral("report-saturated.pdf"));
+    QString satError;
+    const bool satPdfOk = writeReportPdf(satPdfPath, saturatedCtx, &satError);
+    int satPages = -1;
+    {
+        QFile satFile(satPdfPath);
+        if (satFile.open(QIODevice::ReadOnly)) {
+            satPages = pdfPageCount(satFile.readAll());
+            satFile.close();
+        }
+    }
+    check(satPdfOk && satPages == 1, QStringLiteral("export-pdf-saturated-single-page"),
+          satPdfOk ? QStringLiteral("%1 页").arg(satPages) : satError);
+
+    // 提示不能只活在代码里：云图区域底部那条橙色带得真的画出来
+    {
+        StressView hot;
+        hot.resize(460, 360);
+        hot.setGear(params.teeth, params.pinionTeeth, params.module);
+        hot.setDemoMode(false);
+        hot.setResult(saturatedCtx.result);
+        const QImage hotShot = hot.grab().toImage();
+
+        int orange = 0;
+        for (int y = qMax(0, hotShot.height() - 50); y < hotShot.height() - 5; ++y) {
+            for (int x = 0; x < hotShot.width(); ++x) {
+                const QRgb c = hotShot.pixel(x, y);
+                // 0xB4692F 按 200/255 叠在深色底上 ≈ (144, 87, 43)
+                if (qRed(c) >= 120 && qRed(c) <= 170 && qGreen(c) >= 68 && qGreen(c) <= 108
+                    && qBlue(c) >= 28 && qBlue(c) <= 66)
+                    ++orange;
+            }
+        }
+        check(!hotShot.isNull() && orange > 200, QStringLiteral("render-saturation-banner"),
+              QStringLiteral("图中橙色提示像素 %1 个").arg(orange));
+    }
 
     // 临时文件不能留在导出目录里：用户看到 .report.pdf.part 会以为导出出了问题
     {

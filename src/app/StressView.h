@@ -50,6 +50,7 @@ private:
     void drawMesh(QPainter &painter, const QRectF &area);
     void drawMeshCaption(QPainter &painter, const QRectF &area);
     void drawLegend(QPainter &painter, const QRectF &area);
+    void drawSaturationNote(QPainter &painter, const QRectF &area);
     QColor rampColor(double t) const;
 
     int     m_teeth       = 24;
@@ -58,6 +59,7 @@ private:
     bool    m_solved      = false;
     bool    m_demo        = true;
     double  m_ceiling     = 320.0;
+    double  m_peak        = 0.0;   // 本次结果的峰值，用来判断有没有顶到色标上限
     QVector<double> m_toothStress;
 
     StlMesh m_mesh;
