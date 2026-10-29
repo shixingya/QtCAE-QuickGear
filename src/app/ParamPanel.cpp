@@ -17,12 +17,14 @@ ParamPanel::ParamPanel(QWidget *parent)
     // 区间数字只从 GearParamLimits 取：工程文件读取用的也是同一份，
     // 两边各写一套迟早出现"界面能填 80，打开文件被改成 80 以外"的怪事
     m_teeth = new QSpinBox(box);
+    m_teeth->setObjectName(QStringLiteral("teethSpin"));
     m_teeth->setRange(GearParamLimits::kTeethMin, GearParamLimits::kTeethMax);
     m_teeth->setSingleStep(2);
     m_teeth->setSuffix(QStringLiteral(" 齿"));
     m_teeth->setValue(24);
 
     m_pinion = new QSpinBox(box);
+    m_pinion->setObjectName(QStringLiteral("pinionSpin"));
     m_pinion->setRange(GearParamLimits::kPinionMin, GearParamLimits::kPinionMax);
     m_pinion->setSingleStep(2);
     m_pinion->setSuffix(QStringLiteral(" 齿"));
@@ -83,7 +85,10 @@ ParamPanel::ParamPanel(QWidget *parent)
     root->addStretch(1);
 
     connect(m_teeth, QOverload<int>::of(&QSpinBox::valueChanged), this, [this] {
-        m_pinion->setMaximum(qMax(6, m_teeth->value() / 2));
+        // 这里曾把从动轮的上限压到 z1/2：改一次主动轮齿数，从动轮就会被静默夹小
+        // （工程里 30 齿的从动轮变成 15 齿，传动比、报告、云图全部跟着变）。
+        // 区间只认 kPinionMin..kPinionMax；z2 比 z1 大（增速传动）也是合法的，
+        // 真要提醒就写在提示里，不动用户填的数。
         updateDimensionHint();
         emit paramsChanged();
     });

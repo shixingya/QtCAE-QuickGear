@@ -1,3 +1,4 @@
+#include "app/ParamPanel.h"
 #include "app/ReportBuilder.h"
 #include "app/ScreenFit.h"
 #include "app/SolveWorker.h"
@@ -21,6 +22,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPainter>
+#include <QSpinBox>
 #include <QTextDocument>
 #include <QTextStream>
 #include <QThread>
@@ -655,6 +657,34 @@ int main(int argc, char *argv[])
         }
         check(!hotShot.isNull() && orange > 200, QStringLiteral("render-saturation-banner"),
               QStringLiteral("图中橙色提示像素 %1 个").arg(orange));
+    }
+
+    // ---- 4f. 参数面板：改主动轮齿数不许偷偷改从动轮 ----
+    // 曾经 z₁ 一改就把从动轮上限压到 z₁/2：工程里 30 齿的从动轮会变成 15 齿，
+    // 传动比、报告、云图全跟着变，而界面上一个字都不提。
+    {
+        ParamPanel panel;
+        auto *teethSpin  = panel.findChild<QSpinBox *>(QStringLiteral("teethSpin"));
+        auto *pinionSpin = panel.findChild<QSpinBox *>(QStringLiteral("pinionSpin"));
+        bool  pinsOk     = teethSpin && pinionSpin;
+        int   kept       = -1;
+        if (pinsOk) {
+            teethSpin->setValue(30);    // 旧实现：从动轮上限被压到 15
+            pinionSpin->setValue(20);   // 20 在 kPinionMin..kPinionMax 之内
+            kept = panel.params().pinionTeeth;
+
+            // 区间本身还得守住：越界输入照旧夹回
+            pinionSpin->setValue(999);
+            const int high = panel.params().pinionTeeth;
+            pinionSpin->setValue(1);
+            const int low = panel.params().pinionTeeth;
+            pinsOk = (high == GearParamLimits::kPinionMax && low == GearParamLimits::kPinionMin);
+        }
+        check(pinsOk && kept == 20, QStringLiteral("param-pinion-kept"),
+              QStringLiteral("改 z₁ 后 z₂ 仍为 %1 · 区间 %2..%3 仍生效")
+                  .arg(kept)
+                  .arg(GearParamLimits::kPinionMin)
+                  .arg(GearParamLimits::kPinionMax));
     }
 
     // 临时文件不能留在导出目录里：用户看到 .report.pdf.part 会以为导出出了问题
