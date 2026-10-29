@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(QtCAE-QuickGear VERSION 0.3.0 LANGUAGES CXX)
+project(QtCAE-QuickGear VERSION 0.4.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,6 +31,22 @@ option(QTG_USE_CLOSED_SOLVER "链接闭源求解器静态库（需自备 src/pri
 set(QTG_LICENSE_SECRET "QUICKGEAR-OSS-DEMO-KEY-DO-NOT-USE-IN-PRODUCTION" CACHE STRING "授权签名共享密钥")
 
 # ---------------------------------------------------------------------------
+# Ed25519 公钥（推荐方式：客户端只带公钥，私钥永远不出现在分发包里）
+#   QTG_LICENSE_PUBKEY 编进 qgcore / 客户端，base64 的 32 字节公钥
+#   QTG_SIGNING_SEED   只编进 qglicense，仅供开发期直接签发；正式签发用 --key
+#   换密钥：qglicense keygen --out private.key，把 PUBLIC= 填到 PUBKEY，
+#   SEED= 填到 SIGNING_SEED，然后重新 configure。
+#   两个都留空时：客户端只认 HMAC 授权（旧行为），qglicense 要求 --key。
+#
+#   ⚠️ 下面的默认密钥对是从 qglicense keygen 生成后直接写进仓库的“演示对”，
+#   它的种子是公开的，用默认值构建的客户端同样挡不住伪造。
+#   它存在的唯一目的是让新克隆能开箱跑通“签发 → 安装 → 验签”全流程；
+#   真发版必须自己 keygen 一套并只把 PUBLIC 交出去。
+# ---------------------------------------------------------------------------
+set(QTG_LICENSE_PUBKEY "6N5/Rcqrj3OoPt7JYiE9t5hf0pgmYv2kPIx0uHwo/ek=" CACHE STRING "Ed25519 公钥（base64，编进客户端）")
+set(QTG_SIGNING_SEED "RaxAa+3lIuneFceb52ONsJUdtEGyVkVMm0Cm845KEgU=" CACHE STRING "Ed25519 种子（base64，仅编进 qglicense）")
+
+# ---------------------------------------------------------------------------
 # qgcore：与界面无关的核心库，被客户端与授权签发工具共用
 # ---------------------------------------------------------------------------
 add_library(qgcore STATIC
@@ -40,6 +56,7 @@ add_library(qgcore STATIC
     core/SolverFactory.h        core/SolverFactory.cpp
     core/LicenseManager.h       core/LicenseManager.cpp
     core/LicenseBatch.h         core/LicenseBatch.cpp
+    core/Ed25519.h              core/Ed25519.cpp
     core/StlMesh.h              core/StlMesh.cpp
     core/ProjectFile.h          core/ProjectFile.cpp
 )
@@ -49,6 +66,12 @@ target_include_directories(qgcore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # 不引入 QWidget，qglicense 才能作为控制台工具运行
 target_link_libraries(qgcore PUBLIC Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
 target_compile_definitions(qgcore PRIVATE QTG_LICENSE_SECRET="${QTG_LICENSE_SECRET}")
+if (QTG_LICENSE_PUBKEY)
+    target_compile_definitions(qgcore PRIVATE QTG_LICENSE_PUBKEY="${QTG_LICENSE_PUBKEY}")
+    message(STATUS "已内置 Ed25519 公钥，客户端可校验公钥签发的授权")
+else()
+    message(STATUS "未内置 Ed25519 公钥，客户端只接受 HMAC 授权（-DQTG_LICENSE_PUBKEY 可开启）")
+endif()
 
 if (QTG_USE_CLOSED_SOLVER)
     target_compile_definitions(qgcore PUBLIC QTG_WITH_CLOSED_SOLVER=1)
@@ -86,6 +109,10 @@ target_link_libraries(QuickGear PRIVATE qgcore Qt${QT_VERSION_MAJOR}::Widgets)
 # ---------------------------------------------------------------------------
 add_executable(qglicense tools/license_issuer/main.cpp)
 target_link_libraries(qglicense PRIVATE qgcore)
+if (QTG_SIGNING_SEED)
+    # 只给签发工具；客户端拿不到这行，所以拆客户端也签不出授权
+    target_compile_definitions(qglicense PRIVATE QTG_SIGNING_SEED="${QTG_SIGNING_SEED}")
+endif()
 
 # ---------------------------------------------------------------------------
 # qgselftest：不靠鼠标的冒烟自检（STL 解析 / 求解 / 导出 / 工程往返 / 验签）

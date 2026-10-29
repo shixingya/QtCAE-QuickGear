@@ -1,3 +1,4 @@
+#include "core/Ed25519.h"
 #include "core/LicenseBatch.h"
 #include "core/LicenseManager.h"
 
@@ -8,21 +9,24 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QProcessEnvironment>
 #include <QTextStream>
 #include <QVector>
 
 /**
  * qglicense —— QtCAE-QuickGear 授权签发 / 审计工具（开发者自用，控制台程序）。
  *
- *   qglicense machine                              打印本机机器码
+ *   qglicense keygen [--out <private.key>]              生成 Ed25519 密钥对（私钥只在签发机）
  *   qglicense issue --licensee <name> [--days 365] 签发单张授权（默认绑本机）
  *   qglicense batch --in <台账.csv> [--out <目录>] 批量签发 + 出一张交付单
  *   qglicense audit <目录|文件…> [--days 30]        扫描已签授权，列出该续费的客户
  *   qglicense verify [file]                        校验授权（默认校验已安装的那份）
  *   qglicense install <file>                       把授权安装到客户端读取路径
  *
- * 签名：HMAC-SHA256(编译期注入的密钥, "machine|licensee|edition|issued|expire")，
- * 与客户端 LicenseManager 共用同一套代码，因此两边不会出现拼串不一致。
+ * 签名：Ed25519（客户端只内置公钥，拆开也签不出）；待签消息仍是
+ * “machine|licensee|edition|issued|expire”，与客户端 LicenseManager 同源。
+ * 私钥不在客户端里：默认从 --key 或环境变量 QTG_SIGNING_KEY 读；
+ * 两者都没有时用编译期的演示密钥并明确警告（仅供开发）。
  *
  * 输出刻意使用 ASCII 键值对（VALID=YES 之类），避免控制台代码页不一致导致乱码，
  * 也便于脚本、CI 里直接 grep。
@@ -47,10 +51,11 @@ void printUsage()
     out() << "qglicense - QtCAE-QuickGear license issuer\n\n"
           << "Usage:\n"
           << "  qglicense machine\n"
+          << "  qglicense keygen [--out <private.key>]\n"
           << "  qglicense issue --licensee <name> [--edition pro] [--days 365]\n"
           << "                 [--expire 2027-12-31] [--issued 2026-10-28]\n"
-          << "                 [--machine <CODE>] [--out <file>]\n"
-          << "  qglicense batch --in <ledger.csv> [--out <dir>] [--dry-run]\n"
+          << "                 [--machine <CODE>] [--out <file>] [--key <file>]\n"
+          << "  qglicense batch --in <ledger.csv> [--out <dir>] [--dry-run] [--key <file>]\n"
           << "  qglicense audit <dir|file>... [--days 30] [--csv <out.csv>]\n"
           << "  qglicense verify [<file>]\n"
           << "  qglicense install <file>\n\n"
@@ -61,7 +66,8 @@ void printUsage()
           << "  * issue defaults to this machine; use --machine to license another host.\n"
           << "  * files go to the current directory (issue) or --out (batch, default ./issued).\n"
           << "  * audit skips the machine binding check: customer codes never match yours.\n"
-          << "  * signing key is injected at build time (CMake: QTG_LICENSE_SECRET).\n\n"
+          << "  * signing key: --key <file> > env QTG_SIGNING_KEY > built-in demo seed.\n"
+          << "  * the built-in seed is public; use keygen + -DQTG_LICENSE_PUBKEY for real builds.\n\n"
           << "Exit codes: 0 ok, 1 usage/verify failed, 2 bad argument,\n"
           << "            3 write failed, 4 issued/found items needing attention,\n"
           << "            5 audit report (--csv) could not be written.\n";
@@ -92,6 +98,97 @@ QHash<QString, QString> parseOptions(const QStringList &args, QStringList *posit
 int doMachine()
 {
     out() << "MACHINE=" << LicenseManager::machineCode() << "\n";
+    out().flush();
+    return 0;
+}
+
+/** 密钥文件内容 → 32 字节种子：base64 / 64 位 hex / 原始 32 字节都认 */
+QByteArray seedFromText(const QByteArray &raw, QString *error)
+{
+    const QByteArray text = raw.trimmed();
+    const QByteArray b64 = QByteArray::fromBase64(text);
+    if (b64.size() == 32)
+        return b64;
+    const QByteArray hex = QByteArray::fromHex(text);
+    if (hex.size() == 32)
+        return hex;
+    if (raw.size() == 32)
+        return raw;
+    if (error) {
+        *error = QStringLiteral("密钥里没有 32 字节种子（支持 base64 / 64 位 hex / 原始 32 字节）");
+    }
+    return QByteArray();
+}
+
+/**
+ * 签名私钥：--key 文件 > 环境变量 QTG_SIGNING_KEY > 编译期演示种子。
+ * 走到演示种子时一定要把警告带出去——那是公开值，签出来的授权拦不住任何人。
+ */
+QByteArray signingSeed(const QHash<QString, QString> &opts, QString *warning)
+{
+    const QString keyPath = opts.value(QStringLiteral("key")).trimmed();
+    if (!keyPath.isEmpty()) {
+        QFile key(keyPath);
+        if (!key.open(QIODevice::ReadOnly)) {
+            if (warning)
+                *warning = QStringLiteral("无法读取私钥文件 %1：%2").arg(keyPath, key.errorString());
+            return QByteArray();
+        }
+        return seedFromText(key.readAll(), warning);
+    }
+
+    const QString fromEnv = QProcessEnvironment::systemEnvironment().value(
+        QStringLiteral("QTG_SIGNING_KEY"));
+    if (!fromEnv.isEmpty())
+        return seedFromText(fromEnv.toLatin1(), warning);
+
+#ifdef QTG_SIGNING_SEED
+    if (warning) {
+        *warning = QStringLiteral("正在使用内置演示私钥（公开值），签出的授权不具备防伪能力；"
+                                  "正式签发请先 keygen 再用 --key 传入");
+    }
+    return QByteArray::fromBase64(QByteArray(QTG_SIGNING_SEED));
+#else
+    if (warning) {
+        *warning = QStringLiteral("没有可用的私钥：请用 --key <file> 或环境变量 QTG_SIGNING_KEY 指定");
+    }
+    return QByteArray();
+#endif
+}
+
+int doKeygen(const QHash<QString, QString> &opts)
+{
+    const QByteArray seed = Ed25519::randomSeed();
+    QByteArray     pub;
+    if (!Ed25519::derivePublicKey(seed, &pub)) {
+        err() << "ERROR=cannot derive public key\n";
+        err().flush();
+        return 3;
+    }
+
+    const QString outPath = opts.value(QStringLiteral("out")).trimmed();
+    if (!outPath.isEmpty()) {
+        QFile key(outPath);
+        if (!key.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            err() << "ERROR=cannot write " << outPath << ": " << key.errorString() << "\n";
+            err().flush();
+            return 3;
+        }
+        key.write(seed.toBase64() + '\n');
+        key.close();
+        out() << "FILE=" << QDir::toNativeSeparators(QFileInfo(outPath).absoluteFilePath()) << "\n";
+    }
+
+    out() << "SEED=" << QString::fromLatin1(seed.toBase64()) << "\n"
+          << "PUBLIC=" << QString::fromLatin1(pub.toBase64()) << "\n"
+          << "EMBEDDED="
+          << (LicenseManager::signingPublicKey().isEmpty()
+                  ? QStringLiteral("NO")
+                  : (LicenseManager::signingPublicKey() == pub ? QStringLiteral("MATCH")
+                                                              : QStringLiteral("DIFFER")))
+          << "\n"
+          << "WARN=keep the seed off this machine's shared folders; put PUBLIC into "
+             "-DQTG_LICENSE_PUBKEY when building clients\n";
     out().flush();
     return 0;
 }
@@ -156,10 +253,20 @@ int doIssue(const QStringList &args)
         outPath += QStringLiteral(".qglic");
     }
 
+    QString keyWarning;
+    const QByteArray seed = signingSeed(opts, &keyWarning);
+    if (seed.isEmpty()) {
+        err() << "ERROR=" << keyWarning << "\n";
+        err().flush();
+        return 2;
+    }
+    if (!keyWarning.isEmpty())
+        out() << "WARN=" << keyWarning << "\n";
+
     QString sig;
     QString error;
     if (!LicenseManager::writeLicenseFile(outPath, machine, licensee, edition, issued, expire,
-                                          &sig, &error)) {
+                                          &sig, &error, seed)) {
         err() << "ERROR=" << error << "\n";
         err().flush();
         return 3;
@@ -170,7 +277,17 @@ int doIssue(const QStringList &args)
           << "LICENSEE=" << licensee << "\n"
           << "EDITION=" << edition << "\n"
           << "EXPIRES=" << expire.toString(Qt::ISODate) << "\n"
+          << "ALG=ed25519\n"
           << "SIG=" << sig << "\n";
+
+    // 这把私钥派生出的公钥必须与本构建内置的一致，否则客户装上去只会看到“签名无效”
+    QByteArray derived;
+    Ed25519::derivePublicKey(seed, &derived);
+    const QByteArray embedded = LicenseManager::signingPublicKey();
+    if (!embedded.isEmpty() && derived != embedded) {
+        out() << "WARN=signing key does not match the public key embedded in this build; "
+                 "clients built from here will reject this license\n";
+    }
     out().flush();
     return 0;
 }
@@ -218,9 +335,19 @@ int doBatch(const QStringList &args)
         return 4;
     }
 
+    QString keyWarning;
+    const QByteArray seed = signingSeed(opts, &keyWarning);
+    if (seed.isEmpty()) {
+        err() << "ERROR=" << keyWarning << "\n";
+        err().flush();
+        return 2;
+    }
+    if (!keyWarning.isEmpty())
+        out() << "WARN=" << keyWarning << "\n";
+
     QStringList issueErrors;
     const QVector<BatchResult> results =
-        LicenseBatch::issueAll(orders, outDir, dryRun, &issueErrors);
+        LicenseBatch::issueAll(orders, outDir, dryRun, &issueErrors, seed);
     for (const QString &e : issueErrors)
         err() << "ERROR=" << e << "\n";
 
@@ -317,9 +444,10 @@ int doAudit(const QStringList &args)
     int expiring = 0;
     int expired = 0;
     int broken = 0;
+    int legacy = 0;   // 仍用 HMAC 签的老授权，提醒逐张换成 Ed25519
 
     QStringList csvLines;
-    csvLines << QStringLiteral("machine,licensee,edition,issued,expire,days_left,state,file");
+    csvLines << QStringLiteral("machine,licensee,edition,issued,expire,days_left,state,alg,file");
 
     // 任何字段都可能带逗号（客户名、路径），不能只管 licensee 一个
     const auto csvCell = [](const QString &value) {
@@ -335,6 +463,10 @@ int doAudit(const QStringList &args)
         const LicenseInfo info = LicenseManager::parseFile(file, false);
 
         QString flag = QStringLiteral("OK");
+        // 算法与状态无关：过期的 HMAC 授权续费时同样要换成 Ed25519，
+        // 只在 Valid 分支里计数会漏掉那些已经到期、正在谈续费的老客户
+        if (info.alg == QLatin1String("hmac"))
+            ++legacy;
         if (info.state == LicenseState::Valid) {
             if (info.expire.isValid() && info.daysLeft <= window) {
                 ++expiring;
@@ -359,6 +491,7 @@ int doAudit(const QStringList &args)
                                         : QStringLiteral("perpetual"))
               << " DAYS=" << (info.expire.isValid() ? info.daysLeft : -1)
               << " STATE=" << LicenseManager::stateName(info.state)
+              << " ALG=" << info.alg
               << " FLAG=" << flag << "\n";
 
         // 中文公司名在控制台可能因代码页显示成乱码，CSV 是给 Excel 看的那一份
@@ -372,6 +505,7 @@ int doAudit(const QStringList &args)
                         csvCell(info.expire.isValid() ? QString::number(info.daysLeft)
                                                      : QStringLiteral("-")),
                         csvCell(LicenseManager::stateName(info.state)),
+                        csvCell(info.alg),
                         csvCell(QDir::toNativeSeparators(file)),
                     }
                         .join(QLatin1Char(','));
@@ -394,7 +528,8 @@ int doAudit(const QStringList &args)
 
     out() << "SUMMARY TOTAL=" << files.size() << " OK=" << valid
           << " EXPIRING=" << expiring << " EXPIRED=" << expired
-          << " BROKEN=" << broken << " WINDOW=" << window << "\n";
+          << " BROKEN=" << broken << " LEGACY=" << legacy
+          << " WINDOW=" << window << "\n";
     out().flush();
     err().flush();
     // 明细表没写出去就别报“一切正常”：对账少了那一张表就等于没记账
@@ -422,6 +557,7 @@ int doVerify(const QStringList &args)
           << "VALID=" << (info.valid ? "YES" : "NO") << "\n"
           << "SIGNED=" << (info.signatureChecked ? "YES" : "NO") << "\n"
           << "STATE=" << LicenseManager::stateName(info.state) << "\n"
+          << "ALG=" << info.alg << "\n"
           << "LICENSEE=" << info.licensee << "\n"
           << "EDITION=" << info.edition << "\n"
           << "EXPIRES=" << (info.expire.isValid() ? info.expire.toString(Qt::ISODate) : QStringLiteral("-")) << "\n"
@@ -482,6 +618,8 @@ int main(int argc, char *argv[])
     const QString command = args.takeFirst();
     if (command == QLatin1String("machine"))
         return doMachine();
+    if (command == QLatin1String("keygen"))
+        return doKeygen(parseOptions(args, nullptr));
     if (command == QLatin1String("issue"))
         return doIssue(args);
     if (command == QLatin1String("batch"))

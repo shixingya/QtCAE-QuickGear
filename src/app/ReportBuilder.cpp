@@ -70,8 +70,12 @@ QString buildReportHtml(const ReportContext &ctx, const QString &imageSrc)
                                         : (r.safetyFactor >= 1.0 ? QStringLiteral("#A2652A")
                                                                  : QStringLiteral("#B7352F"));
 
+    // 签名算法一并写进页脚：客户拿着一份 PDF 就能看出它是公钥签的还是旧共享密钥签的，
+    // 不用拆授权文件也不用来问我们
     const QString licenseLine = ctx.licensed
-        ? QStringLiteral("已授权（%1）").arg(esc(ctx.licensee))
+        ? QStringLiteral("已授权（%1）· 签名 %2")
+              .arg(esc(ctx.licensee),
+                   ctx.licenseAlg.isEmpty() ? QStringLiteral("未知") : esc(ctx.licenseAlg))
         : QStringLiteral("未授权 · 试用版导出");
 
     QString body;

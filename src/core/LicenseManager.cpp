@@ -1,5 +1,7 @@
 #include "LicenseManager.h"
 
+#include "core/Ed25519.h"
+
 #include <QCryptographicHash>
 #include <QDate>
 #include <QDir>
@@ -147,6 +149,38 @@ bool LicenseManager::verifySignature(const QString &canonical, const QByteArray 
     return diff == 0;
 }
 
+QByteArray LicenseManager::signingPublicKey()
+{
+#ifdef QTG_LICENSE_PUBKEY
+    static const QByteArray pub = QByteArray::fromBase64(QByteArray(QTG_LICENSE_PUBKEY));
+    return pub.size() == 32 ? pub : QByteArray();
+#else
+    return QByteArray();
+#endif
+}
+
+bool LicenseManager::verifyEd25519(const QString &canonical, const QByteArray &signature64)
+{
+    return verifyEd25519With(signingPublicKey(), canonical, signature64);
+}
+
+bool LicenseManager::verifyEd25519With(const QByteArray &publicKey, const QString &canonical,
+                                       const QByteArray &signature64)
+{
+    if (publicKey.size() != 32 || signature64.size() != 64)
+        return false;
+    return Ed25519::verify(canonical.toUtf8(), signature64, publicKey);
+}
+
+QString LicenseManager::algName(const QString &alg)
+{
+    if (alg == QLatin1String("ed25519"))
+        return QStringLiteral("Ed25519 公钥签名");
+    if (alg == QLatin1String("hmac"))
+        return QStringLiteral("HMAC-SHA256 共享密钥（旧格式，建议换成 Ed25519）");
+    return alg.isEmpty() ? QStringLiteral("未知") : alg;
+}
+
 LicenseInfo LicenseManager::parseFile(const QString &path, bool checkMachine)
 {
     LicenseInfo info;
@@ -198,9 +232,33 @@ LicenseInfo LicenseManager::parseFile(const QString &path, bool checkMachine)
         info.message = QStringLiteral("授权文件缺少签名（sig），无法确认来源");
         return info;
     }
-    if (!verifySignature(canonical, sig)) {
+
+    // v1 文件没有 alg 字段，按 HMAC 处理（旧的都这样签的）
+    info.alg = obj.value(QStringLiteral("alg")).toString().trimmed().toLower();
+    if (info.alg.isEmpty())
+        info.alg = QStringLiteral("hmac");
+
+    if (info.alg == QLatin1String("ed25519")) {
+        if (signingPublicKey().isEmpty()) {
+            info.state   = LicenseState::BadSignature;
+            info.message = QStringLiteral("这份授权用 Ed25519 签发，但当前构建未内置对应公钥（"
+                                          "请使用正式构建的客户端）");
+            return info;
+        }
+        if (!verifyEd25519(canonical, QByteArray::fromBase64(sig))) {
+            info.state   = LicenseState::BadSignature;
+            info.message = QStringLiteral("签名校验失败：授权文件被修改，或不是由本工具签发");
+            return info;
+        }
+    } else if (info.alg == QLatin1String("hmac")) {
+        if (!verifySignature(canonical, sig)) {
+            info.state   = LicenseState::BadSignature;
+            info.message = QStringLiteral("签名校验失败：授权文件被修改，或不是由签发工具生成");
+            return info;
+        }
+    } else {
         info.state   = LicenseState::BadSignature;
-        info.message = QStringLiteral("签名校验失败：授权文件被修改，或不是由签发工具生成");
+        info.message = QStringLiteral("不认识的签名算法：%1").arg(info.alg);
         return info;
     }
     info.signatureChecked = true;
@@ -258,7 +316,8 @@ QString LicenseManager::expiryText(const LicenseInfo &info)
 bool LicenseManager::writeLicenseFile(const QString &path, const QString &machine,
                                       const QString &licensee, const QString &edition,
                                       const QDate &issued, const QDate &expire,
-                                      QString *signatureBase64, QString *error)
+                                      QString *signatureBase64, QString *error,
+                                      const QByteArray &signingSeed)
 {
     const QString bound = normalizeMachineCode(machine);
     if (bound.isEmpty()) {
@@ -276,10 +335,24 @@ bool LicenseManager::writeLicenseFile(const QString &path, const QString &machin
     }
 
     const QString canonical = canonicalString(bound, licensee, edition, issued, expire);
-    const QString sig = QString::fromLatin1(signPayload(canonical).toBase64());
+
+    QString sig;
+    QString alg;
+    if (signingSeed.isEmpty()) {
+        // 兼容路径：旧的 HMAC。新签发不要走这里，密钥是编在客户端里的
+        sig = QString::fromLatin1(signPayload(canonical).toBase64());
+        alg = QStringLiteral("hmac");
+    } else {
+        QByteArray sig64;
+        if (!Ed25519::sign(canonical.toUtf8(), signingSeed, &sig64, error))
+            return false;
+        sig = QString::fromLatin1(sig64.toBase64());
+        alg = QStringLiteral("ed25519");
+    }
 
     QJsonObject obj;
-    obj.insert(QStringLiteral("v"), 1);
+    obj.insert(QStringLiteral("v"), signingSeed.isEmpty() ? 1 : 2);
+    obj.insert(QStringLiteral("alg"), alg);
     obj.insert(QStringLiteral("machine"), bound);
     obj.insert(QStringLiteral("licensee"), licensee.trimmed());
     obj.insert(QStringLiteral("edition"), edition.trimmed());

@@ -179,11 +179,37 @@ src/private/
 | 显示位置 | 菜单「授权 → 激活 / 查看机器码…」；状态栏徽标见下表 |
 | 授权文件 | `%APPDATA%/shixingya/QtCAE-QuickGear/license.qglic`（JSON） |
 | 校验顺序 | 结构 → 签名 → 机器码绑定 → 有效期，任一项不过即判无效并给出具体原因 |
-| 签名算法 | HMAC-SHA256，签名串 `machine\|licensee\|edition\|issued\|expire`，验签常时间比较 |
+| 签名算法 | 默认 **Ed25519 公钥签名**（客户端只带公钥，拆开也签不出授权）；旧文件无 `alg` 字段时按 HMAC-SHA256 兼容读取 |
+| 签名串 | `machine\|licensee\|edition\|issued\|expire`，签发与验签共用 `LicenseManager::canonicalString()`，常时间比较 |
 | 机器码归一化 | 大写、去空格、缺连字符的 32 位十六进制自动补分组——客户手抄漏横杠也能签 |
 
 > 为什么先验签再比机器码：一张被改过的文件不该以“机器不匹配”的名义回复客户，
 > 那会让双方都以为是对方的机器出了问题。
+
+### 密钥对：生成一次，只把公钥交出去
+
+授权强度全靠这一步。私钥留在你的签发机上，公钥编进客户端——**客户端被拆开也签不出新授权**。
+
+```powershell
+# 1. 生成密钥对（随机种子，不联网）
+.\build\qglicense.exe keygen --out D:\keys\quickgear.key
+#    FILE=D:\keys\quickgear.key
+#    SEED=RaxAa+3lIuneFceb52ONsJUdtEGyVkVMm0Cm845KEgU=      ← 私钥，别进仓库、别进网盘
+#    PUBLIC=6N5/Rcqrj3OoPt7JYiE9t5hf0pgmYv2kPIx0uHwo/ek=    ← 公钥，可以公开
+
+# 2. 构建客户端：只注入公钥
+cmake -S . -B build -DQTG_LICENSE_PUBKEY="<上一步的 PUBLIC>"
+
+# 3. 签发：私钥用文件传入（也可以用环境变量 QTG_SIGNING_KEY）
+.\build\qglicense.exe issue --licensee "某某机械厂" --days 365 --key D:\keys\quickgear.key
+```
+
+- 私钥文件支持 base64 / 64 位 hex / 原始 32 字节三种写法，`seedFromText()` 都能认。
+- 仓库里 `QTG_LICENSE_PUBKEY` / `QTG_SIGNING_SEED` 的默认值是**公开的演示对**，
+  只为让新克隆能开箱跑通“签发 → 安装 → 验签”。真发版必须换成你自己 `keygen` 出来的那套。
+- `qglicense issue` 签完会自动比对：这把私钥派生出的公钥和当前构建内置的公钥不一致时
+  输出 `WARN=signing key does not match...` —— 这一句能省掉“客户装上去说签名无效”的来回。
+- `keygen` 输出里的 `EMBEDDED=MATCH/DIFFER` 是同一道防呆：拿错私钥当场就能看出来。
 
 ### 状态栏徽标与到期提醒
 
@@ -279,15 +305,18 @@ issued/
 ```
 
 ```text
-FILE=issued/qglic-某某模具厂-2026-12-13.qglic
+FILE=issued\qglic-某某模具厂-2026-12-13.qglic
   MACHINE=7710-4C2E-... LICENSEE=某某模具厂 EDITION=pro
-  EXPIRES=2026-12-13 DAYS=45 STATE=VALID FLAG=EXPIRING
-SUMMARY TOTAL=3 OK=2 EXPIRING=1 EXPIRED=0 BROKEN=0 WINDOW=60
+  EXPIRES=2026-12-13 DAYS=45 STATE=VALID ALG=ed25519 FLAG=EXPIRING
+SUMMARY TOTAL=3 OK=2 EXPIRING=1 EXPIRED=0 BROKEN=0 LEGACY=0 WINDOW=60
 ```
 
 - `audit` **跳过机器码绑定校验**：客户的机器码本来就不是你本机的，
   照常校验的话每张都是 `FOREIGN`，一个到期日都看不到。签名仍然照验，
   所以 `EXPIRED`（该续费）与 `BROKEN`（文件被改过 / 不是自己签的）能分开统计。
+- `ALG` 是每张授权的签名算法；`LEGACY=n` 是**仍用 HMAC 签的数量**，
+  包括已经过期、正在谈续费的那些——它们下次动手就该换新算法。
+  这个数不为 0 时，把对应的老客户排进换签清单。
 - `FLAG` 四态：`OK` / `EXPIRING`（窗口内）/ `EXPIRED` / `BROKEN`。
 - 有 `EXPIRING` / `EXPIRED` / `BROKEN` 时退出码 `4`，可挂进计划任务当续费看板。
 - `--csv` 那份续费清单同样带 BOM，可直接当催款工作表。
@@ -302,6 +331,24 @@ dry-run 输出用 `PLANNED=` 而不是 `ISSUED=`：脚本里 grep 了 `ISSUED` �
 
 ### 授权文件格式
 
+v0.4 起写 `v: 2` 与 `alg: "ed25519"`，`sig` 是 64 字节 Ed25519 签名的 base64：
+
+```json
+{
+  "v": 2,
+  "alg": "ed25519",
+  "machine": "A20A-7BF9-1FA0-0DB1-C5C8-302C-B3D8-A600",
+  "licensee": "某某机械厂",
+  "edition": "pro",
+  "issued": "2026-10-29",
+  "expire": "2027-10-29",
+  "sig": "vAvaB2GVdYl2hWgsIxYvJ/OdoFAoYzVBC3iXZAzuVKRo8D0fpNJCTv1ZlTUehB7...",
+  "note": "QtCAE-QuickGear offline license"
+}
+```
+
+v0.3 及更早的文件没有 `alg` 字段，按 HMAC 读取，照旧能用：
+
 ```json
 {
   "v": 1,
@@ -310,8 +357,7 @@ dry-run 输出用 `PLANNED=` 而不是 `ISSUED=`：脚本里 grep 了 `ISSUED` �
   "edition": "pro",
   "issued": "2026-10-28",
   "expire": "2027-10-28",
-  "sig": "GjK78vbQzuFsi6dYNcuDZCH2KHbVklrTh0YT06C/GZ0=",
-  "note": "QtCAE-QuickGear offline license"
+  "sig": "GjK78vbQzuFsi6dYNcuDZCH2KHbVklrTh0YT06C/GZ0="
 }
 ```
 
@@ -320,12 +366,39 @@ dry-run 输出用 `PLANNED=` 而不是 `ISSUED=`：脚本里 grep 了 `ISSUED` �
 
 ### ⚠️ 关于签名强度（务必读完再商用）
 
-- 密钥是**编译期注入的共享密钥**（`-DQTG_LICENSE_SECRET=...`），客户端与签发工具必须用同一个值。
-- 仓库默认值是公开的演示密钥 `QUICKGEAR-OSS-DEMO-KEY-DO-NOT-USE-IN-PRODUCTION`，**用默认值构建的客户端等于没有授权保护**：任何人都能照着源码算出合法签名。
-- 正式发版请务必：
-  1. `cmake -DQTG_LICENSE_SECRET="你自己的长随机串"`，或改用环境变量注入到 CI；
-  2. 更彻底的做法是把 `verifySignature()` 换成闭源模块里的 **Ed25519 公钥验签**（私钥只在签发侧，客户端只带公钥）——接口不变，其余流程不用改。
-- 已经实测的防线：改任一字段（如 `licensee`）、换机器、过期，客户端都会拒绝并给出原因。它挡的是「随手改文件」，不是「专门逆向」。
+**这层挡的是什么、挡不住什么**，先说清楚：
+
+| | Ed25519（v0.4 默认） | HMAC-SHA256（旧） |
+| --- | --- | --- |
+| 客户端里放的是什么 | 公钥（32 字节） | 共享密钥（要能算签名就必须有） |
+| 拿到客户端后能否自己签授权 | **不能**：公钥只能验，签不出 | **能**：抠出密钥就能签任意机器、任意年限 |
+| 抗“改文件” | 能，改一个字节即 `BADSIG` | 能 |
+| 抗“逆向改判断” | 不能。改掉 `verifyEd25519()` 的返回值就绕过了 | 不能 |
+
+所以：
+
+1. **签名只防伪造授权文件，不防逆向**。真正的商业防线是闭源求解器
+   （`QTG_USE_CLOSED_SOLVER`）——没有那部分，壳子被改也不产生价值。
+2. 仓库默认密钥对是**公开的演示值**，用默认值构建的客户端一样拦不住人。
+   真发版必须 `keygen` 一套自己的，并只把 `PUBLIC=` 交给构建。
+3. 私钥一旦泄露，**所有**该公钥签发的授权都失效（客户端只认这一个公钥）。
+   换钥相当于换一代授权：老授权在新客户端上会被当成 `BADSIG`，需要重新签发。
+   私钥备份放在离线介质，别跟着代码走，也别放进网盘同步目录。
+4. 已经实测的防线：改任一字段（如 `licensee`）、换机器、过期、拿另一把私钥签，
+   客户端都会拒绝并给出具体原因。
+5. 实现是自己写的（`core/Ed25519.cpp`，5×51 位域元素），没有引入外部依赖。
+   验收靠 **RFC 8032 §7.1 的三组官方向量**：seed → 公钥、签名逐字节一致、
+   以及改消息/改签名/换公钥/截短签名都必须被拒。这三项每次 `qgselftest` 都跑。
+
+### 从 v0.3 升级：老授权怎么办
+
+升级后客户端**同时认两种算法**，不需要停机换签：
+
+- 已发出的 HMAC 授权照旧可用，`verify` / `audit` 会标 `ALG=hmac`；
+- 新签的走 Ed25519（`ALG=ed25519`），客户端用内置公钥验；
+- `audit` 的 `LEGACY=n` 告诉你有多少张还是老算法。建议在客户下次续费时顺手换签，
+  不要专门为换算法做一次停服动作；
+- 换公钥之后，**所有**老 Ed25519 授权会失效（公钥变了）。同一代授权不要中途换钥。
 
 ---
 
@@ -341,16 +414,17 @@ dry-run 输出用 `PLANNED=` 而不是 `ISSUED=`：脚本里 grep 了 `ISSUED` �
 - [x] 参数面板（含分度圆、齿顶圆、传动比联动提示）
 - [x] 求解流程（QThread + 进度条 + 结果回填）
 - [x] 云图视图（按齿着色 + 色标图例 + MOCK 角标）
-- [x] 机器码生成、授权文件签名（HMAC-SHA256）、验签与导入
-- [x] `qglicense` 签发工具（machine / issue / verify / install）
+- [x] 机器码生成、Ed25519 公钥签名（旧 HMAC 授权仍可验）、验签与导入
+- [x] `qglicense` 签发工具（machine / keygen / issue / batch / audit / verify / install）
 - [x] 免安装包部署（手工部署 9 个文件，干净 PATH 可启动）
 - [x] STL 导入（二进制 / ASCII）+ 未求解时的几何预览
 - [x] 结论页导出（单页 A4 PDF）/ 云图导出（PNG），未授权自动加水印
 - [x] 工程文件 `.qgpj`（参数 + 结果 + 几何路径 + 备注，原子写）
 - [x] 拖放打开、最近文件、`QSettings` 记忆、求解日志面板
-- [x] `qgselftest` 冒烟自检（20 项，含 PDF 页数与渲染覆盖率断言）
+- [x] `qgselftest` 冒烟自检（37 项，含 Ed25519 RFC 8032 向量、PDF 页数与渲染覆盖率断言）
 - [ ] 闭源求解器接入（需加密库）
-- [ ] 签名升级为 Ed25519 公钥验签（共享密钥可被逆向）
+- [x] 签名升级为 Ed25519 公钥验签（私钥只在签发侧）
+- [x] 导入路径原子替换（不再“先删再拷”，失败不会两头落空）
 - [ ] 三维云图渲染（OpenGL / VTK）
 - [ ] 导入几何参与求解（网格修复 / 实体化，目前仅预览）
 - [ ] 批量参数扫描 / 报告模板自定义

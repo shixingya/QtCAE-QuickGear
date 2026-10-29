@@ -1,5 +1,6 @@
 #include "app/ReportBuilder.h"
 #include "app/StressView.h"
+#include "core/Ed25519.h"
 #include "core/LicenseBatch.h"
 #include "core/LicenseManager.h"
 #include "core/ProjectFile.h"
@@ -13,6 +14,8 @@
 #include <QFileInfo>
 #include <QFont>
 #include <QImage>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QPainter>
 #include <QTextDocument>
 #include <QTextStream>
@@ -352,6 +355,21 @@ int main(int argc, char *argv[])
     check(pdfPages == 1, QStringLiteral("export-pdf-single-page"),
           QStringLiteral("%1 页").arg(pdfPages));
 
+    // 页脚得能让人自己核对签名算法：客户拿着一份 PDF 就能看出是不是公钥签的
+    {
+        ReportContext licensedCtx = ctx;
+        licensedCtx.licensed   = true;
+        licensedCtx.licensee   = QStringLiteral("自检客户");
+        licensedCtx.licenseAlg = QStringLiteral("ed25519");
+        const QString licensedHtml = buildReportHtml(licensedCtx);
+        const QString trialHtml    = buildReportHtml(ctx);
+        check(licensedHtml.contains(QStringLiteral("签名 ed25519"))
+                  && trialHtml.contains(QStringLiteral("试用版导出"))
+                  && !trialHtml.contains(QStringLiteral("签名 ed25519")),
+              QStringLiteral("report-license-alg"),
+              QStringLiteral("已授权页脚带签名算法 · 试用页脚不冒充授权"));
+    }
+
     const QString pngPath = QDir(outDir).filePath(QStringLiteral("stress.png"));
     const bool pngOk = writeImagePng(pngPath, watermarked, &error);
     check(pngOk && QFileInfo(pngPath).size() > 5000, QStringLiteral("export-png"),
@@ -523,6 +541,180 @@ int main(int argc, char *argv[])
           QStringLiteral("license-install-keep-valid"),
           QStringLiteral("过期件未覆盖有效件 · 原文件%1")
               .arg(intactAfterStale ? QStringLiteral("未变") : QStringLiteral("被改")));
+
+    // ---- 6c. Ed25519：RFC 8032 §7.1 官方向量（自己写的曲线不拿官方向量对一遍不算数）----
+    struct EdCase
+    {
+        const char *seed;
+        const char *pub;
+        const char *msgHex;
+        const char *sig;
+    };
+    const EdCase edCases[] = {
+        {"9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+         "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a", "",
+         "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e06522490155"
+         "5fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"},
+        {"4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+         "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c", "72",
+         "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da"
+         "085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00"},
+        {"c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7",
+         "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025", "af82",
+         "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac"
+         "18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a"},
+    };
+
+    int  edKeyOk = 0;
+    int  edSignOk = 0;
+    bool edAllVerify = true;
+    for (const EdCase &c : edCases) {
+        const QByteArray seed = QByteArray::fromHex(c.seed);
+        const QByteArray msg = QByteArray::fromHex(c.msgHex);
+        const QByteArray pub = QByteArray::fromHex(c.pub);
+        const QByteArray sig = QByteArray::fromHex(c.sig);
+
+        QByteArray derived;
+        if (Ed25519::derivePublicKey(seed, &derived) && derived == pub)
+            ++edKeyOk;
+
+        QByteArray produced;
+        if (Ed25519::sign(msg, seed, &produced) && produced == sig)
+            ++edSignOk;
+
+        if (!Ed25519::verify(msg, sig, pub))
+            edAllVerify = false;
+    }
+    check(edKeyOk == 3, QStringLiteral("ed25519-rfc8032-key"),
+          QStringLiteral("公钥推导 %1/3 与官方向量一致").arg(edKeyOk));
+    check(edSignOk == 3, QStringLiteral("ed25519-rfc8032-sign"),
+          QStringLiteral("签名 %1/3 逐字节一致").arg(edSignOk));
+
+    // 改一个 bit 就必须被拒：这也是“客户端只有公钥也签不出东西”的前提
+    {
+        const QByteArray seed = QByteArray::fromHex(edCases[1].seed);
+        const QByteArray msg = QByteArray::fromHex(edCases[1].msgHex);
+        const QByteArray pub = QByteArray::fromHex(edCases[1].pub);
+        const QByteArray sig = QByteArray::fromHex(edCases[1].sig);
+
+        QByteArray badMsg = msg;
+        badMsg[0] = static_cast<char>(badMsg[0] ^ 0x01);
+        QByteArray badSig = sig;
+        badSig[10] = static_cast<char>(badSig[10] ^ 0x01);
+        QByteArray badPub = pub;
+        badPub[5] = static_cast<char>(badPub[5] ^ 0x01);
+        QByteArray shortSig = sig.left(63);
+
+        const bool rejects = edAllVerify && !Ed25519::verify(badMsg, sig, pub)
+                             && !Ed25519::verify(msg, badSig, pub)
+                             && !Ed25519::verify(msg, sig, badPub)
+                             && !Ed25519::verify(msg, shortSig, pub);
+        check(rejects, QStringLiteral("ed25519-tamper"),
+              QStringLiteral("改消息/改签名/换公钥/截短签名均被拒"));
+    }
+
+    // ---- 6d. 授权文件层面的 Ed25519 往返 + 旧 HMAC 文件仍可识别 ----
+    // 上面测的是曲线本身，这里测的是“写进文件 → 读回来 → 验签”这条链，
+    // 包括 alg 字段分派：分派写错时曲线全对也照样全部授权失效。
+    {
+        const QDate  issuedOn = today;
+        const QDate  expireOn = today.addDays(90);
+        const QString edMachine = LicenseManager::machineCode();
+        const QString edLicensee = QStringLiteral("Ed25519 往返客户");
+        const QString edEdition = QStringLiteral("pro");
+
+        // 固定种子便于失败时重现；pubB 只是“另一把公钥”，用来证明换钥即失效
+        const QByteArray seedA = QByteArray::fromHex(edCases[1].seed);
+        QByteArray       pubA;
+        QByteArray       pubB;
+        const bool keyOk = Ed25519::derivePublicKey(seedA, &pubA)
+                           && Ed25519::derivePublicKey(Ed25519::randomSeed(), &pubB) && pubA != pubB;
+
+        const QString edPath = QDir(licenseDir).filePath(QStringLiteral("self-ed25519.qglic"));
+        QString       edSig;
+        QString       edErr;
+        const bool    edWritten = LicenseManager::writeLicenseFile(
+            edPath, edMachine, edLicensee, edEdition, issuedOn, expireOn, &edSig, &edErr, seedA);
+
+        // 从落盘的真实内容重建规范化串，而不是拿内存里那份——判的就是文件本身
+        QString   algInFile;
+        int       verInFile = -1;
+        QString   sigInFile;
+        QDate     issuedInFile;
+        QDate     expireInFile;
+        QString   licenseeInFile;
+        QString   editionInFile;
+        QString   machineInFile;
+        {
+            QFile f(edPath);
+            if (f.open(QIODevice::ReadOnly)) {
+                const QJsonObject obj = QJsonDocument::fromJson(f.readAll()).object();
+                f.close();
+                algInFile      = obj.value(QStringLiteral("alg")).toString();
+                verInFile      = obj.value(QStringLiteral("v")).toInt();
+                sigInFile      = obj.value(QStringLiteral("sig")).toString();
+                licenseeInFile = obj.value(QStringLiteral("licensee")).toString();
+                editionInFile  = obj.value(QStringLiteral("edition")).toString();
+                machineInFile  = obj.value(QStringLiteral("machine")).toString();
+                issuedInFile   = QDate::fromString(obj.value(QStringLiteral("issued")).toString(),
+                                                   Qt::ISODate);
+                expireInFile   = QDate::fromString(obj.value(QStringLiteral("expire")).toString(),
+                                                   Qt::ISODate);
+            }
+        }
+        const QString canonicalOnDisk = LicenseManager::canonicalString(
+            machineInFile, licenseeInFile, editionInFile, issuedInFile, expireInFile);
+        const QByteArray sigABytes = QByteArray::fromBase64(sigInFile.toLatin1());
+
+        const bool edRoundTrip = edWritten && edErr.isEmpty() && algInFile == QLatin1String("ed25519")
+                                 && verInFile == 2 && sigABytes.size() == 64
+                                 && edSig == sigInFile
+                                 && LicenseManager::verifyEd25519With(pubA, canonicalOnDisk, sigABytes);
+        check(edRoundTrip, QStringLiteral("license-ed25519-roundtrip"),
+              QStringLiteral("落盘 ALG=%1 v=%2 · 用对应公钥验签%3")
+                  .arg(algInFile)
+                  .arg(verInFile)
+                  .arg(edRoundTrip ? QStringLiteral("通过") : QStringLiteral("失败")));
+
+        // 换一把公钥必须验不过：这就是“客户端只带公钥”能挡住伪造的全部依赖
+        const LicenseInfo fromDisk = LicenseManager::parseFile(edPath, true);
+        const bool        wrongKeyOk =
+            keyOk && !LicenseManager::verifyEd25519With(pubB, canonicalOnDisk, sigABytes);
+        // 这份文件是用 pubA 对应的种子签的：内置公钥恰好是 pubA 时它应该有效，
+        // 否则必须明确报“签名无效”。两种情况下都不允许“公钥不匹配却放行”。
+        const bool embeddedIsA = LicenseManager::signingPublicKey() == pubA;
+        const bool gateHolds   = embeddedIsA ? fromDisk.valid
+                                             : fromDisk.state == LicenseState::BadSignature;
+        check(wrongKeyOk && gateHolds, QStringLiteral("license-ed25519-wrongkey"),
+              QStringLiteral("换公钥即失效 · 内置公钥%1 · STATE=%2")
+                  .arg(embeddedIsA ? QStringLiteral("匹配") : QStringLiteral("不匹配"),
+                       LicenseManager::stateName(fromDisk.state)));
+
+        // 旧授权（HMAC、无 alg 字段）必须继续可用，否则一次升级把所有老客户关在门外
+        const QString hmacPath = QDir(licenseDir).filePath(QStringLiteral("self-hmac.qglic"));
+        QString       hmacErr;
+        const bool    hmacWritten = LicenseManager::writeLicenseFile(
+            hmacPath, edMachine, QStringLiteral("旧授权客户"), edEdition, issuedOn, expireOn,
+            nullptr, &hmacErr);
+        const LicenseInfo hmacInfo = LicenseManager::parseFile(hmacPath, true);
+        QString algOfHmac;
+        int     verOfHmac = -1;
+        {
+            QFile f(hmacPath);
+            if (f.open(QIODevice::ReadOnly)) {
+                const QJsonObject obj = QJsonDocument::fromJson(f.readAll()).object();
+                f.close();
+                algOfHmac = obj.value(QStringLiteral("alg")).toString();
+                verOfHmac = obj.value(QStringLiteral("v")).toInt();
+            }
+        }
+        check(hmacWritten && hmacInfo.valid && algOfHmac == QLatin1String("hmac") && verOfHmac == 1,
+              QStringLiteral("license-hmac-compat"),
+              QStringLiteral("旧算法仍可验 · ALG=%1 v=%2 STATE=%3")
+                  .arg(algOfHmac)
+                  .arg(verOfHmac)
+                  .arg(LicenseManager::stateName(hmacInfo.state)));
+    }
 
     // 台账：表头 + 注释 + 一行连写小写机器码 + 一行带逗号的公司名 + 一行抄错的码
     const QByteArray ledger = QStringLiteral(

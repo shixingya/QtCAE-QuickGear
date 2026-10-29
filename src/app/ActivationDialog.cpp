@@ -102,6 +102,7 @@ void ActivationDialog::refresh()
             detail += QStringLiteral("\n有效期至：%1（%2）")
                           .arg(info.expire.toString(QStringLiteral("yyyy-MM-dd")),
                                LicenseManager::expiryText(info));
+        detail += QStringLiteral("\n签名：%1").arg(LicenseManager::algName(info.alg));
         detail += QStringLiteral("\n%1").arg(info.message);
         if (info.expiringSoon())
             detail += QStringLiteral("\n续期：把上面的机器码发给作者，收到新的 .qglic 后重新导入。");

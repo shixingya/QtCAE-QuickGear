@@ -368,6 +368,8 @@ void MainWindow::refreshLicenseBadge()
     }
 
     QString tip = info.message;
+    if (!info.alg.isEmpty())
+        tip += QStringLiteral("\n签名：%1").arg(LicenseManager::algName(info.alg));
     if (info.expire.isValid())
         tip += QStringLiteral("\n有效期至 %1（%2）")
                    .arg(info.expire.toString(Qt::ISODate), LicenseManager::expiryText(info));
@@ -884,6 +886,7 @@ QString MainWindow::buildReportContextAndExport(bool pdf)
     ctx.result      = m_lastResult;
     ctx.licensed    = info.valid;
     ctx.licensee    = info.licensee;
+    ctx.licenseAlg  = info.alg;
     ctx.demo        = m_backend && m_backend->isDemo();
     ctx.machineCode = LicenseManager::machineCode();
     ctx.meshSummary = m_mesh.isEmpty() ? QString() : stlSummary(m_mesh);

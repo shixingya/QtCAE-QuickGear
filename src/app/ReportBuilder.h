@@ -16,6 +16,7 @@ struct ReportContext
 
     QString machineCode;
     QString licensee;      // 已授权时的被授权方，试用为空
+    QString licenseAlg;    // 签名算法：ed25519 / hmac；写在页脚供人工核对
     bool    licensed = false;
     bool    demo     = true;
 

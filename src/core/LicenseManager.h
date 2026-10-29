@@ -36,6 +36,7 @@ struct LicenseInfo
     QString      boundMachine;              // 授权文件里绑定的机器码（审计他机授权时看这个）
     QString      licensee;                  // 授权对象
     QString      edition;                   // pro / trial
+    QString      alg;                       // 签名算法：ed25519 / hmac（旧文件无此字段）
     QDate        issued;
     QDate        expire;
     /**
@@ -61,13 +62,13 @@ struct LicenseInfo
  *   2. 机器码在客户端本地计算，不上传；网页端无法得知客户端机器码，
  *      因此**网页设备码只用于沟通定位，激活以客户端机器码为准**。
  *   3. 授权文件为 JSON，放在用户配置目录（不写入安装目录，避免 UAC 问题）。
- *   4. 签名采用 HMAC-SHA256（编译期注入的共享密钥），签名覆盖的规范化串为
- *      `machine|licensee|edition|issued|expire`，避免 JSON 序列化差异导致验签不稳定。
- *      机器码在该串内统一归一化（大写、补连字符），客户手抄漏掉连字符也能对上。
- *   5. ⚠️ 共享密钥方案的局限：密钥编进客户端后理论上可被逆向获取（开源版默认密钥
- *      更是公开的）。它能挡住“拿到文件就能用”的随手修改，挡不住专门的破解。
- *      正式版应将 verifySignature() 换成闭源模块里的 Ed25519 公钥验签（私钥只在签发侧），
- *      接口保持不变，其余流程不用改。
+ *   4. 签名支持两种算法：
+ *      - ed25519（推荐）：非对称。客户端只内置 32 字节公钥，拆开 exe 也签不出授权；
+ *      - hmac-sha256（兼容）：v0.3 及以前的文件仍能用，但密钥编在客户端里，只挡随手改。
+ *      规范化串 `machine|licensee|edition|issued|expire` 两种算法共用，
+ *      避免 JSON 序列化差异导致验签不稳定。机器码在串内统一归一化。
+ *   5. 新签发的授权应一律用 ed25519；hmac 路径只为“旧的还在用”保留，
+ *      audit 会把它们标出来（ALG=hmac），方便逐张换新。
  */
 class LicenseManager
 {
@@ -128,13 +129,17 @@ public:
 
     /**
      * 写出一份授权文件（签名、JSON 结构都在这里，签发工具不再自己拼）。
+     *
+     * signingSeed 为 32 字节 Ed25519 种子时用公钥签名（推荐）；
+     * 留空则退回 HMAC（仅为了自检与旧流程能跑，新授权不要用）。
      * signatureBase64 非空时回传签名，供批量交付单记录。
      */
     static bool writeLicenseFile(const QString &path, const QString &machine,
                                  const QString &licensee, const QString &edition,
                                  const QDate &issued, const QDate &expire,
                                  QString *signatureBase64 = nullptr,
-                                 QString *error = nullptr);
+                                 QString *error = nullptr,
+                                 const QByteArray &signingSeed = QByteArray());
 
     /**
      * 规范化签名串：machine|licensee|edition|issued|expire
@@ -149,6 +154,25 @@ public:
 
     /** 校验 base64 签名，内部做常时间比较 */
     static bool verifySignature(const QString &canonical, const QByteArray &signatureBase64);
+
+    /**
+     * 编译期注入的 Ed25519 公钥（CMake: QTG_LICENSE_PUBKEY，base64）。
+     * 为空表示这个构建不支持公钥验签，遇到 ed25519 授权会明确报错而不是默默放行。
+     */
+    static QByteArray signingPublicKey();
+
+    /** 用内置公钥验 64 字节 Ed25519 签名 */
+    static bool verifyEd25519(const QString &canonical, const QByteArray &signature64);
+
+    /**
+     * 用指定公钥验签（32 字节）。与内置公钥无关，给自检与“换公钥后旧授权失效”
+     * 这类验证用；客户端运行时应当用 verifyEd25519。
+     */
+    static bool verifyEd25519With(const QByteArray &publicKey, const QString &canonical,
+                                  const QByteArray &signature64);
+
+    /** 签名算法的可读名称，给界面、报告与命令行共用一份措辞 */
+    static QString algName(const QString &alg);
 
 private:
     static QByteArray rawMachineId();

@@ -174,7 +174,8 @@ QVector<BatchOrder> LicenseBatch::parseLedger(const QByteArray &content, QString
 
 QVector<BatchResult> LicenseBatch::issueAll(const QVector<BatchOrder> &orders,
                                             const QString &outDir, bool dryRun,
-                                            QStringList *errors)
+                                            QStringList *errors,
+                                            const QByteArray &signingSeed)
 {
     QVector<BatchResult> results;
     results.reserve(orders.size());
@@ -209,7 +210,7 @@ QVector<BatchResult> LicenseBatch::issueAll(const QVector<BatchOrder> &orders,
             QString error;
             if (!LicenseManager::writeLicenseFile(result.file, order.machine, order.licensee,
                                                   order.edition, order.issued, order.expire,
-                                                  &result.sig, &error)) {
+                                                  &result.sig, &error, signingSeed)) {
                 result.error = error;
             }
         }

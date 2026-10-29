@@ -59,13 +59,15 @@ public:
     /**
      * 按订单逐条签发到 outDir，同时写一张交付单 manifest.csv。
      *   dryRun = true 时只算出目标文件名，不建目录、不落盘。
+     *   signingSeed 为 32 字节 Ed25519 种子；留空则退回 HMAC（仅供自检与旧流程）。
      * 返回结果与订单一一对应、顺序不变。
      *
      * 交付单与授权文件一起落地：分两处写就会出现“文件已经发给客户、单子上没有”的账外授权。
      */
     static QVector<BatchResult> issueAll(const QVector<BatchOrder> &orders,
                                         const QString &outDir, bool dryRun,
-                                        QStringList *errors);
+                                        QStringList *errors,
+                                        const QByteArray &signingSeed = QByteArray());
 
     /** 交付单路径：<outDir>/manifest.csv */
     static QString manifestPath(const QString &outDir);
