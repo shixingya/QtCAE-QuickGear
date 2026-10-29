@@ -687,6 +687,37 @@ int main(int argc, char *argv[])
                   .arg(GearParamLimits::kPinionMax));
     }
 
+    // ---- 4g. 参数进界面时不许被小数位悄悄四舍五入 ----
+    // QDoubleSpinBox 装不下的值会被当场取整，而 params() 拿回来的就是取整后的值：
+    // 模数 2.25 搭 1 位小数就变 2.3（σ ∝ 1/m³，峰值少算 6%，够把“边界”推成“通过”），
+    // 87.5 N·m 搭 0 位小数变 88。现在计量到 0.01 mm / 0.1 N·m，装不下的要说出来。
+    {
+        ParamPanel panel;
+        GearParams exact;
+        exact.module    = 2.25;
+        exact.torque    = 87.5;
+        exact.faceWidth = 18.25;
+        const QStringList quiet = panel.setParams(exact);
+        const GearParams   back  = panel.params();
+        const bool exactOk = quiet.isEmpty()
+                             && std::fabs(back.module - 2.25) < 1e-9
+                             && std::fabs(back.torque - 87.5) < 1e-9
+                             && std::fabs(back.faceWidth - 18.25) < 1e-9;
+
+        // 0.01 mm 也装不下的时候，绝不静默：改了什么要交回给调用方写日志
+        exact.module = 2.256;
+        const QStringList notes = panel.setParams(exact);
+        const double      rounded = panel.params().module;
+        const bool fineOk = notes.size() == 1
+                            && notes.value(0).contains(QStringLiteral("模数"))
+                            && std::fabs(rounded - 2.26) < 1e-9;
+
+        check(exactOk && fineOk, QStringLiteral("param-load-precision"),
+              QStringLiteral("2.25 / 87.5 / 18.25 原样存住 · 2.256 → %1（%2 条提醒）")
+                  .arg(rounded, 0, 'f', 2)
+                  .arg(notes.size()));
+    }
+
     // 临时文件不能留在导出目录里：用户看到 .report.pdf.part 会以为导出出了问题
     {
         const QString partPath = QFileInfo(pdfPath).absolutePath()

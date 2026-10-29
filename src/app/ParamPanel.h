@@ -22,7 +22,15 @@ public:
     explicit ParamPanel(QWidget *parent = nullptr);
 
     GearParams params() const;
-    void setParams(const GearParams &params);
+
+    /**
+     * 把参数装进控件。
+     *
+     * 返回“界面装不下”的字段说明（空 = 一个数都没动）：spinbox 只能显示到
+     * decimals 位，装进去就会四舍五入，而 params() 拿回来的是四舍五入后的值。
+     * 调用方（打开工程时）要把这些说明写进日志，不能静静改掉别人的模数。
+     */
+    QStringList setParams(const GearParams &params);
     void setEditable(bool editable);
 
 signals:

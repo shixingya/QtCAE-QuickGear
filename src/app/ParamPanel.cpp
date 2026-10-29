@@ -31,23 +31,29 @@ ParamPanel::ParamPanel(QWidget *parent)
     m_pinion->setValue(12);
 
     m_module = new QDoubleSpinBox(box);
+    m_module->setObjectName(QStringLiteral("moduleSpin"));
     m_module->setRange(GearParamLimits::kModuleMin, GearParamLimits::kModuleMax);
     m_module->setSingleStep(0.5);
-    m_module->setDecimals(1);
+    // 小数位就是精度：spinbox 装不下的值会被当场四舍五入，而模数在 σ ∝ 1/m³ 里
+    // 当分母——1 位小数把 2.25 变成 2.3，峰值应力就少算 6%。计量到 0.01 mm 就够。
+    m_module->setDecimals(2);
     m_module->setSuffix(QStringLiteral(" mm"));
     m_module->setValue(2.0);
 
     m_torque = new QDoubleSpinBox(box);
+    m_torque->setObjectName(QStringLiteral("torqueSpin"));
     m_torque->setRange(GearParamLimits::kTorqueMin, GearParamLimits::kTorqueMax);
     m_torque->setSingleStep(5.0);
-    m_torque->setDecimals(0);
+    // 扭矩直接乘在 σ 上：整数位会把 87.5 N·m 变成 88（–0.6%），留一位小数
+    m_torque->setDecimals(1);
     m_torque->setSuffix(QStringLiteral(" N·m"));
     m_torque->setValue(80.0);
 
     m_faceWidth = new QDoubleSpinBox(box);
+    m_faceWidth->setObjectName(QStringLiteral("faceWidthSpin"));
     m_faceWidth->setRange(GearParamLimits::kFaceWidthMin, GearParamLimits::kFaceWidthMax);
     m_faceWidth->setSingleStep(1.0);
-    m_faceWidth->setDecimals(1);
+    m_faceWidth->setDecimals(2);
     m_faceWidth->setSuffix(QStringLiteral(" mm"));
     m_faceWidth->setValue(20.0);
 
@@ -122,7 +128,7 @@ GearParams ParamPanel::params() const
     return p;
 }
 
-void ParamPanel::setParams(const GearParams &params)
+QStringList ParamPanel::setParams(const GearParams &params)
 {
     const QSignalBlocker b1(m_teeth);
     const QSignalBlocker b2(m_pinion);
@@ -142,6 +148,23 @@ void ParamPanel::setParams(const GearParams &params)
     m_material->setCurrentIndex(index >= 0 ? index : 0);
 
     updateDimensionHint();
+
+    // 装进去之后回头比一遍：spinbox 按 decimals 四舍五入，装不下的值当场就变了。
+    // 齿轮 CAE 里模数和扭矩都在公式里，改 2% 就是结论从“边界”变“通过”，
+    // 所以这里不静静吞掉——把改过的字段交回给调用方去写日志。
+    QStringList notes;
+    const GearParams shown = this->params();
+    auto report = [&notes](const QString &label, double wanted, double got, const QString &unit) {
+        if (qAbs(wanted - got) <= 1e-9)
+            return;
+        notes << QStringLiteral("%1 %2%3 → %4%5（界面精度装不下，已按显示值计算）")
+                     .arg(label, QString::number(wanted, 'g', 10), unit,
+                          QString::number(got, 'g', 10), unit);
+    };
+    report(QStringLiteral("模数"), params.module, shown.module, QStringLiteral(" mm"));
+    report(QStringLiteral("输入扭矩"), params.torque, shown.torque, QStringLiteral(" N·m"));
+    report(QStringLiteral("齿宽"), params.faceWidth, shown.faceWidth, QStringLiteral(" mm"));
+    return notes;
 }
 
 void ParamPanel::setEditable(bool editable)

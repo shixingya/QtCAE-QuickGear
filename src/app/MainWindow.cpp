@@ -805,9 +805,17 @@ QStringList MainWindow::applyProject(const ProjectData &data)
         issues.append(warning);
     }
 
-    m_paramPanel->setParams(data.params);
+    // 参数进 spinbox 时会被按小数位四舍五入（模数 2.255 → 2.26，σ ∝ 1/m³，差 1%
+    // 就够把结论从“边界”推到“通过”）。改了什么照样要说出来。
+    for (const QString &note : m_paramPanel->setParams(data.params)) {
+        logLine(QStringLiteral("工程参数已调整：%1").arg(note));
+        issues.append(note);
+    }
     m_noteEdit->setText(data.note);
-    m_stressView->setGear(data.params.teeth, data.params.pinionTeeth, data.params.module);
+    // 画齿轮用面板里的值（用户看到的就是它），不是文件里那个装不下的原值，
+    // 否则面板写 2.26、云图按 2.255 画，尺寸成两张嘴
+    const GearParams shown = m_paramPanel->params();
+    m_stressView->setGear(shown.teeth, shown.pinionTeeth, shown.module);
     m_stressView->clearResult();
 
     // 几何存路径：文件可能已被移动，读不到就降级为"无几何"并说清楚
