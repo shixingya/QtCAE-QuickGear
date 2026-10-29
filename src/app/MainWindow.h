@@ -123,9 +123,20 @@ private:
     QLabel *m_geometryLabel = nullptr;  // 状态栏：几何来源
 
     QAction *m_saveAction        = nullptr;
+    QAction *m_saveAsAction      = nullptr;
+    QAction *m_newAction         = nullptr;
+    QAction *m_openAction        = nullptr;
+    QAction *m_importAction      = nullptr;
     QAction *m_exportPdfAction   = nullptr;
     QAction *m_exportPngAction   = nullptr;
     QMenu   *m_recentMenu        = nullptr;
+
+    /**
+     * 求解进行中就把“换工程/换几何”的动作拒掉：算完的结果属于上一套参数，
+     * 换过之后结果会落到新参数头上，报告里就是“新参数 + 旧结果”。
+     * 返回值 true 表示已拒。
+     */
+    bool refuseWhileBusy(const QString &action);
 
     QThread *m_thread = nullptr;
     bool     m_busy   = false;

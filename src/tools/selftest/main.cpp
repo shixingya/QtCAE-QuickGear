@@ -1,4 +1,5 @@
 #include "app/ReportBuilder.h"
+#include "app/ScreenFit.h"
 #include "app/SolveWorker.h"
 #include "app/StressView.h"
 #include "core/Ed25519.h"
@@ -685,6 +686,33 @@ int main(int argc, char *argv[])
         check(ink > 0.03 && writeImagePng(previewPath, page, &previewError),
               QStringLiteral("report-html-render"),
               QStringLiteral("墨迹占比 %1% · 高 %2 px").arg(ink * 100.0, 0, 'f', 1).arg(height));
+    }
+
+    // ---- 3b. 窗口位置：拔掉外接屏后不能把窗口留在空气里 ----
+    {
+        const QRect       primary(0, 0, 1920, 1040);
+        const QVector<QRect> oneScreen{primary};
+
+        // 上次在副屏（主屏右侧那块）中间关的窗口：副屏拔了，必须拉回主屏
+        const QRect onGoneScreen(2300, 300, 1120, 760);
+        const QRect fitted = screenfit::fit(onGoneScreen, oneScreen, QSize(1120, 760));
+        check(!screenfit::reachable(onGoneScreen, oneScreen)
+                  && primary.contains(fitted.center())
+                  && fitted.size() == QSize(1120, 760),
+              QStringLiteral("window-fits-back-to-primary"),
+              QStringLiteral("左侧 %1 宽 %2 → 拉回 (%3,%4)")
+                  .arg(fitted.left())
+                  .arg(fitted.width())
+                  .arg(fitted.left())
+                  .arg(fitted.top()));
+
+        // 只露一条边（用户还能拖回来）不该被挖走；完全在屏内的更不该动
+        const QRect peek(1920 - 200, 300, 1120, 760);
+        const QRect inside(100, 80, 1120, 760);
+        check(screenfit::reachable(peek, oneScreen)
+                  && screenfit::fit(inside, oneScreen, QSize(1120, 760)) == inside,
+              QStringLiteral("window-kept-when-reachable"),
+              QStringLiteral("露边窗口保留 · 屏内窗口原样"));
     }
 
     // ---- 4. 工程文件往返 ----

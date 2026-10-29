@@ -3,6 +3,7 @@
 #include "ActivationDialog.h"
 #include "ParamPanel.h"
 #include "ReportBuilder.h"
+#include "ScreenFit.h"
 #include "SolveWorker.h"
 #include "StressView.h"
 #include "core/SolverFactory.h"
@@ -22,6 +23,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFont>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QKeySequence>
 #include <QLabel>
@@ -34,6 +36,7 @@
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QScreen>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QStatusBar>
@@ -217,10 +220,12 @@ void MainWindow::buildMenus()
     auto *newAction = fileMenu->addAction(QStringLiteral("新建工程"));
     newAction->setShortcut(QKeySequence::New);
     connect(newAction, &QAction::triggered, this, &MainWindow::newProject);
+    m_newAction = newAction;
 
     auto *openAction = fileMenu->addAction(QStringLiteral("打开工程…"));
     openAction->setShortcut(QKeySequence::Open);
     connect(openAction, &QAction::triggered, this, &MainWindow::openProject);
+    m_openAction = openAction;
 
     m_recentMenu = fileMenu->addMenu(QStringLiteral("最近打开"));
     connect(m_recentMenu, &QMenu::aboutToShow, this, [this] {
@@ -245,12 +250,14 @@ void MainWindow::buildMenus()
     auto *saveAsAction = fileMenu->addAction(QStringLiteral("另存为…"));
     saveAsAction->setShortcut(QKeySequence::SaveAs);
     connect(saveAsAction, &QAction::triggered, this, &MainWindow::saveProjectAs);
+    m_saveAsAction = saveAsAction;
 
     fileMenu->addSeparator();
 
     auto *importAction = fileMenu->addAction(QStringLiteral("导入 STL 几何…"));
     importAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+I")));
     connect(importAction, &QAction::triggered, this, &MainWindow::importStl);
+    m_importAction = importAction;
 
     fileMenu->addSeparator();
 
@@ -443,6 +450,14 @@ void MainWindow::refreshActions()
         m_exportPngAction->setEnabled(m_hasResult && !m_busy);
     if (m_saveAction)
         m_saveAction->setEnabled(!m_busy);
+    // 求解还在跑的时候换工程/换几何：参数和几何被换掉，算完的结果还是上一套的，
+    // 于是“新参数 + 旧结果”被当成本次结果写进界面和报告。干脆不让换。
+    for (QAction *action : {m_newAction, m_openAction, m_importAction, m_saveAsAction}) {
+        if (action)
+            action->setEnabled(!m_busy);
+    }
+    if (m_recentMenu)
+        m_recentMenu->setEnabled(!m_busy);
 
     if (m_geometryLabel) {
         m_geometryLabel->setText(
@@ -453,6 +468,16 @@ void MainWindow::refreshActions()
                       .arg(QLocale().toString(m_mesh.count())));
         m_geometryLabel->setToolTip(m_mesh.isEmpty() ? QString() : stlSummary(m_mesh));
     }
+}
+
+bool MainWindow::refuseWhileBusy(const QString &action)
+{
+    if (!m_busy)
+        return false;
+    const QString text = QStringLiteral("%1：求解进行中，等这次算完").arg(action);
+    m_stageLabel->setText(text);
+    logLine(text);
+    return true;
 }
 
 void MainWindow::resetMetrics()
@@ -627,6 +652,8 @@ void MainWindow::showAbout()
 
 void MainWindow::newProject()
 {
+    if (refuseWhileBusy(QStringLiteral("新建工程")))
+        return;
     if (!maybeSaveChanges())
         return;
 
@@ -651,6 +678,8 @@ void MainWindow::newProject()
 
 void MainWindow::openProject()
 {
+    if (refuseWhileBusy(QStringLiteral("打开工程")))
+        return;
     if (!maybeSaveChanges())
         return;
 
@@ -665,6 +694,9 @@ void MainWindow::openProject()
 
 void MainWindow::openRecent()
 {
+    if (refuseWhileBusy(QStringLiteral("打开最近工程")))
+        return;
+
     auto *action = qobject_cast<QAction *>(sender());
     if (!action)
         return;
@@ -736,6 +768,9 @@ bool MainWindow::saveTo(const QString &path)
 
 bool MainWindow::loadFrom(const QString &path)
 {
+    if (refuseWhileBusy(QStringLiteral("打开工程")))
+        return false;
+
     ProjectData data;
     QString     error;
     if (!loadProject(path, &data, &error)) {
@@ -860,6 +895,10 @@ void MainWindow::importStl()
 
 bool MainWindow::importStlFrom(const QString &path)
 {
+    // 拖放和最近文件都会走到这里，不进菜单，所以闸设在这里才拦得住
+    if (refuseWhileBusy(QStringLiteral("导入几何")))
+        return false;
+
     const StlLoadResult result = loadStl(path);
     if (!result.ok) {
         logLine(QStringLiteral("导入失败：%1").arg(result.error));
@@ -977,6 +1016,9 @@ void MainWindow::exportPng()
 
 void MainWindow::dragEnterEvent(QDragEnterEvent *event)
 {
+    // 求解进行中不接受拖放：参数/几何被换掉，算完的结果已经是上一套的了
+    if (m_busy)
+        return;
     if (!event->mimeData()->hasUrls())
         return;
     for (const QUrl &url : event->mimeData()->urls()) {
@@ -1032,6 +1074,23 @@ void MainWindow::restoreSettings()
     QSettings settings;
 
     restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray());
+    // 上次在外接屏上关的窗口，屏拔了再启动会回到一块已经不存在的屏幕上：拉回主屏
+    {
+        const QScreen *primary = QGuiApplication::primaryScreen();
+        QVector<QRect> screens;
+        if (primary)
+            screens.append(primary->availableGeometry());
+        for (const QScreen *screen : QGuiApplication::screens()) {
+            if (screen != primary)
+                screens.append(screen->availableGeometry());
+        }
+        const QRect frame = frameGeometry();
+        const QRect fixed = screenfit::fit(frame, screens, QSize(1120, 760));
+        if (fixed != frame) {
+            resize(fixed.size());
+            move(fixed.topLeft());
+        }
+    }
     m_recentFiles = settings.value(QStringLiteral("files/recent")).toStringList();
 
     GearParams p;
