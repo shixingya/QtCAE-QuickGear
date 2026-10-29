@@ -1,4 +1,5 @@
 #include "app/ReportBuilder.h"
+#include "app/SolveWorker.h"
 #include "app/StressView.h"
 #include "core/Ed25519.h"
 #include "core/LicenseBatch.h"
@@ -20,11 +21,13 @@
 #include <QPainter>
 #include <QTextDocument>
 #include <QTextStream>
+#include <QThread>
 #include <QUrl>
 #include <QVector>
 
 #include <cmath>
 #include <cstring>
+#include <memory>
 
 #ifdef Q_OS_WIN
 #  include <windows.h>   // 读 exe 的版本资源（GetFileVersionInfoW / VerQueryValueW）
@@ -192,6 +195,33 @@ QString argValue(const QStringList &args, const QString &key, const QString &fal
         return args.at(index + 1);
     return fallback;
 }
+
+/**
+ * 故意算得慢的后端：用来验证"窗口先没了、求解还没完"时后端不会被提前释放。
+ * 真求解器一跑就是分钟级，这个坑在 Mock 上永远遇不到。
+ */
+class SlowBackend : public ISolverBackend
+{
+public:
+    QString displayName() const override { return QStringLiteral("慢速测试后端"); }
+    bool    isDemo() const override { return true; }
+
+    SolveResult solve(const GearParams &, const ProgressFn &onProgress) override
+    {
+        for (int step = 1; step <= 4; ++step) {
+            QThread::msleep(60);
+            if (onProgress)
+                onProgress(step * 25, QStringLiteral("慢速阶段 %1").arg(step));
+        }
+        SolveResult result;
+        result.ok            = true;
+        result.backend       = displayName();
+        result.peakVonMises  = 42.0;
+        result.elements      = 1234;
+        result.safetyFactor  = 400.0 / 42.0;
+        return result;
+    }
+};
 
 /**
  * 从 PDF 字节里数页数（读目录对象的 /Count），用于守住"结论页必须一页"。
@@ -458,6 +488,48 @@ int main(int argc, char *argv[])
                       .arg(floorSame ? QStringLiteral("一致") : QStringLiteral("不一致")));
         }
     }
+
+    // ---- 2c. 求解还没算完就关窗口：后端不能被提前释放 ----
+    // 窗口用 shared_ptr 持有后端、worker 再拿一份，就是为了这件事。
+    // 曾经是裸指针：关窗口等 3 秒没等到，析构继续走，worker 手里的后端成了悬垂指针。
+    std::weak_ptr<ISolverBackend> aliveAfter;   // 出了作用域（worker 已析构）再验引用计数
+    {
+        auto                          backend = std::make_shared<SlowBackend>();
+        std::weak_ptr<ISolverBackend> alive   = backend;
+        aliveAfter = alive;
+
+        QThread     thread;
+        SolveWorker worker(backend, GearParams());
+        worker.moveToThread(&thread);
+
+        SolveResult got;
+        bool        finished        = false;
+        bool        aliveWhileSolving = false;
+        QObject::connect(&worker, &SolveWorker::finished, &worker,
+                         [&](const SolveResult &r) {
+                             got              = r;
+                             finished         = true;
+                             aliveWhileSolving = !alive.expired();
+                         },
+                         Qt::DirectConnection);   // 就在 worker 线程里比对，不靠事件循环
+        QObject::connect(&thread, &QThread::started, &worker, &SolveWorker::run);
+        // 直连：主线程此刻正堵在 wait() 上，排队的 quit 永远排不到
+        QObject::connect(&worker, &SolveWorker::finished, &thread, &QThread::quit,
+                         Qt::DirectConnection);
+
+        thread.start();
+        backend.reset();   // 模拟窗口先于求解结束被销毁
+        const bool joined = thread.wait(5000);
+
+        check(joined && finished && got.ok && got.elements == 1234 && aliveWhileSolving,
+              QStringLiteral("solve-backend-lifetime"),
+              QStringLiteral("窗口已释放后端 · 求解仍拿到 %1 单元 · 后端存活=%2")
+                  .arg(got.elements)
+                  .arg(aliveWhileSolving ? QStringLiteral("是") : QStringLiteral("否")));
+    }
+    // 引用计数要能收回来，否则只是把泄漏换了个写法
+    check(aliveAfter.expired(), QStringLiteral("solve-backend-released"),
+          QStringLiteral("worker 析构后后端引用计数归零"));
 
     // ---- 3. 结论页导出（离屏渲染云图，不弹窗口）----
     StressView view;

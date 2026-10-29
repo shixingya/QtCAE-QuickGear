@@ -1,8 +1,11 @@
 #include "SolveWorker.h"
 
-SolveWorker::SolveWorker(ISolverBackend *backend, const GearParams &params, QObject *parent)
+#include <utility>
+
+SolveWorker::SolveWorker(std::shared_ptr<ISolverBackend> backend, const GearParams &params,
+                         QObject *parent)
     : QObject(parent)
-    , m_backend(backend)
+    , m_backend(std::move(backend))
     , m_params(params)
 {
 }

@@ -94,7 +94,9 @@ private:
 
     QString buildReportContextAndExport(bool pdf);
 
-    std::unique_ptr<ISolverBackend> m_backend;
+    // 用 shared_ptr 而不是 unique_ptr：求解线程里的 worker 会一起持有它，
+    // 关窗口时窗口先没、后端还在，worker 就不会踩到已经释放的求解器
+    std::shared_ptr<ISolverBackend> m_backend;
     LicenseManager                  m_license;
     LicenseInfo                     m_licenseInfo;   // 启动时读一次，徽标与到期提醒共用
 
@@ -122,6 +124,7 @@ private:
 
     QThread *m_thread = nullptr;
     bool     m_busy   = false;
+    bool     m_closeWhenIdle = false;   // 求解中点了关闭：等算完再关，不在半路拆线程
 
     QString    m_projectPath;      // 当前工程文件路径，空表示未保存
     QStringList m_recentFiles;

@@ -13,6 +13,7 @@
 #include <QCloseEvent>
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QDebug>
 #include <QDesktopServices>
 #include <QDir>
 #include <QDockWidget>
@@ -114,9 +115,16 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
-    if (m_thread) {
-        m_thread->quit();
-        m_thread->wait(3000);
+    if (!m_thread)
+        return;
+
+    // quit() 只结束事件循环，管不到阻塞中的 solve()：真求解器可能还在算。
+    // 这里不能等 3 秒就往下走——继续析构会释放 worker 正在用的对象，
+    // 然后在退出时撞上 "QThread: Destroyed while thread is still running"。
+    m_thread->quit();
+    if (!m_thread->wait(3000)) {
+        qWarning("求解线程 3 秒内没返回，继续等待（丢失退出速度，换不丢数据）");
+        m_thread->wait();
     }
 }
 
@@ -510,7 +518,7 @@ void MainWindow::runSolve()
                 .arg(params.material));
 
     auto *thread = new QThread;
-    auto *worker = new SolveWorker(m_backend.get(), params);
+    auto *worker = new SolveWorker(m_backend, params);
     worker->moveToThread(thread);
 
     connect(thread, &QThread::started, worker, &SolveWorker::run);
@@ -535,6 +543,16 @@ void MainWindow::onSolveProgress(int percent, const QString &stage)
 void MainWindow::onSolveFinished(const SolveResult &result)
 {
     setBusy(false);
+
+    // 求解过程中点过关闭：先把结果落完（该记的日志、该刷的标题），再关
+    if (m_closeWhenIdle) {
+        m_closeWhenIdle = false;
+        logLine(QStringLiteral("求解已结束，按关闭时的要求退出"));
+        QTimer::singleShot(0, this, [this] { close(); });
+        if (result.ok)
+            m_lastResult = result;
+        return;
+    }
 
     if (!result.ok) {
         m_stageLabel->setText(QStringLiteral("求解失败"));
@@ -978,6 +996,15 @@ void MainWindow::dropEvent(QDropEvent *event)
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     if (!maybeSaveChanges()) {
+        event->ignore();
+        return;
+    }
+    // 求解还在跑：这时候拆窗口会把 worker 手里的后端和信号一起废掉。
+    // 先不关，算完自动关；用户看到的是“关得慢一点”，而不是“点关闭就没了”。
+    if (m_busy) {
+        m_closeWhenIdle = true;
+        m_stageLabel->setText(QStringLiteral("求解进行中，完成后自动关闭"));
+        logLine(QStringLiteral("收到关闭请求：等待本次求解完成后退出"));
         event->ignore();
         return;
     }

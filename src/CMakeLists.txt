@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(QtCAE-QuickGear VERSION 0.4.3 LANGUAGES CXX)
+project(QtCAE-QuickGear VERSION 0.4.4 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -135,6 +135,7 @@ add_executable(qgselftest
     tools/selftest/main.cpp
     app/StressView.h            app/StressView.cpp
     app/ReportBuilder.h         app/ReportBuilder.cpp
+    app/SolveWorker.h           app/SolveWorker.cpp   # 验证关窗口时后端不能被提前释放
 )
 target_include_directories(qgselftest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(qgselftest PRIVATE qgcore Qt${QT_VERSION_MAJOR}::Widgets)
