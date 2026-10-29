@@ -479,6 +479,51 @@ int main(int argc, char *argv[])
               .arg(LicenseManager::stateName(onOtherMachine.state),
                    LicenseManager::stateName(asAudited.state)));
 
+    // ---- 6b. 导入：坏文件不能把手上能用的授权顶掉 ----
+    const QString installDir    = QDir(outDir).filePath(QStringLiteral("install"));
+    const QString installTarget = QDir(installDir).filePath(QStringLiteral("license.qglic"));
+    QDir().mkpath(installDir);
+    QFile::remove(installTarget);
+
+    const auto readTarget = [&installTarget]() -> QByteArray {
+        QFile f(installTarget);
+        if (!f.open(QIODevice::ReadOnly))
+            return QByteArray();
+        return f.readAll();
+    };
+
+    LicenseManager installer;
+    QString        installError;
+    const bool     installed = installer.installFrom(expiringPath, &installError, installTarget);
+    const LicenseInfo installedInfo = LicenseManager::parseFile(installTarget, true);
+    check(installed && installError.isEmpty() && installedInfo.valid && installedInfo.daysLeft == 10,
+          QStringLiteral("license-install-ok"),
+          QStringLiteral("目标%1 · 剩 %2 天")
+              .arg(QFileInfo::exists(installTarget) ? QStringLiteral("已写入") : QStringLiteral("缺失"))
+              .arg(installedInfo.daysLeft));
+
+    // 后续两个“应当被拒”的用例必须证明目标文件一个字节都没变
+    const QByteArray targetBefore = readTarget();
+
+    QString    rejectError;
+    const bool rejectedForeign = !installer.installFrom(foreignPath, &rejectError, installTarget);
+    const bool intactAfterForeign = (readTarget() == targetBefore);
+    check(rejectedForeign && intactAfterForeign
+              && rejectError.contains(QStringLiteral("未通过校验")),
+          QStringLiteral("license-install-reject"),
+          QStringLiteral("他机授权被拒 · 原文件%1")
+              .arg(intactAfterForeign ? QStringLiteral("未变") : QStringLiteral("被改")));
+
+    // 错点旧邮件附件是真实发生的事：拿过期件覆盖有效件必须拦住
+    QString    staleError;
+    const bool rejectedStale = !installer.installFrom(expiredPath, &staleError, installTarget);
+    const bool intactAfterStale = (readTarget() == targetBefore);
+    check(rejectedStale && intactAfterStale
+              && staleError.contains(QStringLiteral("已过期")),
+          QStringLiteral("license-install-keep-valid"),
+          QStringLiteral("过期件未覆盖有效件 · 原文件%1")
+              .arg(intactAfterStale ? QStringLiteral("未变") : QStringLiteral("被改")));
+
     // 台账：表头 + 注释 + 一行连写小写机器码 + 一行带逗号的公司名 + 一行抄错的码
     const QByteArray ledger = QStringLiteral(
                                   "# 自检台账\n"

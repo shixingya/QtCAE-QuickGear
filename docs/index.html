@@ -653,9 +653,16 @@ function renderQuota() {
     quotaEls.tag.textContent = left === 0 ? '额度已用完' : `剩余 ${left} 次`;
   }
   if (quotaEls.runBtn) {
-    quotaEls.runBtn.textContent = left === 0
+    const out = left === 0;
+    quotaEls.runBtn.textContent = out
       ? '今日额度已用完 · 获取本地版授权'
       : '运行预览仿真（消耗 1 次）';
+    // 用完时不禁用：这颗按钮此刻的作用就是打开授权引导，禁掉等于把出口也关了
+    quotaEls.runBtn.classList.toggle('btn-primary', !out);
+    quotaEls.runBtn.classList.toggle('btn-ghost', out);
+    quotaEls.runBtn.setAttribute('aria-label', out
+      ? `今日 ${CONFIG.dailyLimit} 次试用额度已用完，点击查看设备码并获取本地版授权`
+      : `运行预览仿真，消耗 1 次额度，今日剩余 ${left} 次`);
   }
   if (!trial.storageOK) {
     console.warn('[trial] localStorage 不可用，计数仅在当前页面内有效');
@@ -1154,6 +1161,12 @@ async function runPreview() {
     return;
   }
 
+  // 引擎没起来就先别扣次数：扣了再失败等于白拿用户一次额度
+  if (!gearA || !gearB) {
+    setStatus('idle', '预览引擎未就绪，本次未扣次数');
+    return;
+  }
+
   // 扣减 1 次
   trial.used += 1;
   persistTrial();
@@ -1166,18 +1179,29 @@ async function runPreview() {
   progressBar.style.width = '0%';
   setStatus('busy', '求解中');
 
-  const steps = 14;
-  for (let i = 1; i <= steps; i++) {
-    await sleep(52);
-    progressBar.style.width = `${(i / steps) * 100}%`;
-  }
+  try {
+    const steps = 14;
+    for (let i = 1; i <= steps; i++) {
+      await sleep(52);
+      progressBar.style.width = `${(i / steps) * 100}%`;
+    }
 
-  applyStress();
-  showResults();
-  state.running = false;
-  progressEl.hidden = true;
-  runBtn.disabled = false;
-  setStatus('live', '演示完成 · 示意解');
+    applyStress();
+    showResults();
+    setStatus('live', '演示完成 · 示意解');
+  } catch (e) {
+    // 没拿到结果就把这次额度退回去，否则用户既没看到云图又少了次数
+    trial.used = Math.max(trial.used - 1, 0);
+    persistTrial();
+    renderQuota();
+    setStatus('idle', '预览失败，本次未扣次数');
+    console.error('[preview] 求解过程出错', e);
+  } finally {
+    // 不管成功失败都必须解锁：卡在 running 态的按钮会让整页再也跑不动
+    state.running = false;
+    progressEl.hidden = true;
+    runBtn.disabled = false;
+  }
 
   if (trial.used >= CONFIG.dailyLimit) {
     renderQuota();

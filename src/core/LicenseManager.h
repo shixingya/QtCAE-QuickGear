@@ -94,8 +94,18 @@ public:
      */
     static LicenseInfo parseFile(const QString &path, bool checkMachine);
 
-    /** 把外部授权文件安装到默认路径，成功返回 true */
-    bool installFrom(const QString &srcPath, QString *error = nullptr) const;
+    /**
+     * 把外部授权文件安装到默认路径，成功返回 true。
+     *
+     * 先解析校验再落盘：签名不对 / 绑定他机 / 文件损坏一律拒绝，原授权保持不动。
+     * 替换时先写 .incoming 再改名，在新文件就位前不删旧文件。
+     *
+     * 返回 true 时 error 仍可能带提示（例如“已导入但已到期”），调用方应当显示。
+     *
+     * targetPath 留空则装到默认位置；自检传入临时路径，保证不碰用户真授权。
+     */
+    bool installFrom(const QString &srcPath, QString *error = nullptr,
+                     const QString &targetPath = QString()) const;
 
     /** 状态名（ASCII，给脚本 grep 用） */
     static QString stateName(LicenseState state);

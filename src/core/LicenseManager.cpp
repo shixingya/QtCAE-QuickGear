@@ -305,7 +305,8 @@ LicenseInfo LicenseManager::current() const
     return loadFromFile(defaultLicensePath());
 }
 
-bool LicenseManager::installFrom(const QString &srcPath, QString *error) const
+bool LicenseManager::installFrom(const QString &srcPath, QString *error,
+                                 const QString &targetPath) const
 {
     QFile src(srcPath);
     if (!src.exists()) {
@@ -313,14 +314,61 @@ bool LicenseManager::installFrom(const QString &srcPath, QString *error) const
         return false;
     }
 
-    const QString target = defaultLicensePath();
+    const QString target = targetPath.isEmpty() ? defaultLicensePath() : targetPath;
     if (QFileInfo(srcPath).absoluteFilePath() == QFileInfo(target).absoluteFilePath())
         return true;
 
-    QFile::remove(target);
-    if (!src.copy(target)) {
+    // 先验后用：把一个签名对不上的文件装进去，等于顺手弄丢客户手上那张能用的授权
+    const LicenseInfo incoming = parseFile(srcPath, true);
+    if (incoming.state == LicenseState::BadSignature
+        || incoming.state == LicenseState::ForeignMachine
+        || incoming.state == LicenseState::Unreadable) {
+        if (error) {
+            *error = QStringLiteral("这份授权未通过校验（%1），原授权保持不动。\n%2")
+                         .arg(stateName(incoming.state), incoming.message);
+        }
+        return false;
+    }
+
+    QDir().mkpath(QFileInfo(target).absolutePath());
+
+    // 不许拿一张已过期的授权换掉手上还能用的那张：客户往往是错点了旧邮件里的附件
+    const LicenseInfo existing = QFile::exists(target) ? parseFile(target, true) : LicenseInfo();
+    if (incoming.state == LicenseState::Expired && existing.valid) {
+        if (error) {
+            *error = QStringLiteral("现有授权仍然有效（%1），不会被一份已过期的授权覆盖。")
+                         .arg(expiryText(existing));
+        }
+        return false;
+    }
+
+    // 先落到临时文件再整体替换：原实现先删旧的再复制，复制一失败就两头落空
+    const QString staging = target + QStringLiteral(".incoming");
+    QFile::remove(staging);
+    if (!src.copy(staging)) {
         if (error) *error = QStringLiteral("复制授权文件失败：%1").arg(src.errorString());
         return false;
     }
+
+    const QString backup = target + QStringLiteral(".previous");
+    QFile::remove(backup);
+    const bool hadPrevious = QFile::exists(target);
+    if (hadPrevious && !QFile::rename(target, backup)) {
+        QFile::remove(staging);
+        if (error) *error = QStringLiteral("无法替换原授权（文件可能正被占用）：%1").arg(target);
+        return false;
+    }
+    if (!QFile::rename(staging, target)) {
+        if (hadPrevious) QFile::rename(backup, target);   // 替换失败就把旧的放回去
+        QFile::remove(staging);
+        if (error) *error = QStringLiteral("写入授权文件失败，原授权已恢复：%1").arg(target);
+        return false;
+    }
+    QFile::remove(backup);
+
+    // 过期文件允许导入（客户手里可能还是上一份），但必须让调用方看见这句话
+    if (incoming.state == LicenseState::Expired && error)
+        *error = QStringLiteral("授权已导入，但它已于 %1 到期")
+                     .arg(incoming.expire.toString(QStringLiteral("yyyy-MM-dd")));
     return true;
 }

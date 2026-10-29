@@ -63,7 +63,8 @@ void printUsage()
           << "  * audit skips the machine binding check: customer codes never match yours.\n"
           << "  * signing key is injected at build time (CMake: QTG_LICENSE_SECRET).\n\n"
           << "Exit codes: 0 ok, 1 usage/verify failed, 2 bad argument,\n"
-          << "            3 write failed, 4 issued/found items needing attention.\n";
+          << "            3 write failed, 4 issued/found items needing attention,\n"
+          << "            5 audit report (--csv) could not be written.\n";
     out().flush();
 }
 
@@ -320,6 +321,16 @@ int doAudit(const QStringList &args)
     QStringList csvLines;
     csvLines << QStringLiteral("machine,licensee,edition,issued,expire,days_left,state,file");
 
+    // 任何字段都可能带逗号（客户名、路径），不能只管 licensee 一个
+    const auto csvCell = [](const QString &value) {
+        QString cell = value;
+        cell.replace(QStringLiteral("\""), QStringLiteral("\"\""));
+        if (cell.contains(QLatin1Char(',')) || cell.contains(QLatin1Char('"'))
+            || cell.contains(QLatin1Char('\n')))
+            cell = QLatin1Char('"') + cell + QLatin1Char('"');
+        return cell;
+    };
+
     for (const QString &file : files) {
         const LicenseInfo info = LicenseManager::parseFile(file, false);
 
@@ -339,7 +350,7 @@ int doAudit(const QStringList &args)
             flag = QStringLiteral("BROKEN");
         }
 
-        out() << "FILE=" << file << "\n"
+        out() << "FILE=" << QDir::toNativeSeparators(file) << "\n"
               << "  MACHINE=" << info.boundMachine
               << " LICENSEE=" << (info.licensee.isEmpty() ? QStringLiteral("-") : info.licensee)
               << " EDITION=" << info.edition << "\n"
@@ -351,24 +362,22 @@ int doAudit(const QStringList &args)
               << " FLAG=" << flag << "\n";
 
         // 中文公司名在控制台可能因代码页显示成乱码，CSV 是给 Excel 看的那一份
-        QString licensee = info.licensee;
-        licensee.replace(QStringLiteral("\""), QStringLiteral("\"\""));
-        if (licensee.contains(QLatin1Char(',')))
-            licensee = QLatin1Char('"') + licensee + QLatin1Char('"');
         csvLines << QStringList{
-                        info.boundMachine,
-                        licensee,
-                        info.edition,
-                        info.issued.isValid() ? info.issued.toString(Qt::ISODate) : QString(),
-                        info.expire.isValid() ? info.expire.toString(Qt::ISODate)
-                                              : QStringLiteral("perpetual"),
-                        info.expire.isValid() ? QString::number(info.daysLeft) : QStringLiteral("-"),
-                        LicenseManager::stateName(info.state),
-                        QFileInfo(file).fileName(),
+                        csvCell(info.boundMachine),
+                        csvCell(info.licensee),
+                        csvCell(info.edition),
+                        csvCell(info.issued.isValid() ? info.issued.toString(Qt::ISODate) : QString()),
+                        csvCell(info.expire.isValid() ? info.expire.toString(Qt::ISODate)
+                                                     : QStringLiteral("perpetual")),
+                        csvCell(info.expire.isValid() ? QString::number(info.daysLeft)
+                                                     : QStringLiteral("-")),
+                        csvCell(LicenseManager::stateName(info.state)),
+                        csvCell(QDir::toNativeSeparators(file)),
                     }
                         .join(QLatin1Char(','));
     }
 
+    bool csvFailed = false;
     const QString csvPath = opts.value(QStringLiteral("csv")).trimmed();
     if (!csvPath.isEmpty()) {
         QFile csv(csvPath);
@@ -379,6 +388,7 @@ int doAudit(const QStringList &args)
             out() << "CSV=" << QFileInfo(csvPath).absoluteFilePath() << "\n";
         } else {
             err() << "ERROR=cannot write " << csvPath << ": " << csv.errorString() << "\n";
+            csvFailed = true;
         }
     }
 
@@ -387,12 +397,23 @@ int doAudit(const QStringList &args)
           << " BROKEN=" << broken << " WINDOW=" << window << "\n";
     out().flush();
     err().flush();
+    // 明细表没写出去就别报“一切正常”：对账少了那一张表就等于没记账
+    if (csvFailed)
+        return 5;
     return (expiring == 0 && expired == 0 && broken == 0) ? 0 : 4;
 }
 
 int doVerify(const QStringList &args)
 {
     const QString path = args.isEmpty() ? LicenseManager::defaultLicensePath() : args.first();
+    if (QFileInfo(path).isDir()) {
+        // 目录不是一张授权：直接指着能一次看全整份名单的 audit
+        err() << "ERROR=not a license file (it is a directory); try: qglicense audit \""
+              << QDir::toNativeSeparators(path) << "\"\n";
+        err().flush();
+        return 2;
+    }
+
     LicenseManager manager;
     const LicenseInfo info = manager.loadFromFile(path);
 
@@ -425,6 +446,9 @@ int doInstall(const QStringList &args)
         err().flush();
         return 3;
     }
+    // 装成功也可能有话说（例如这份授权已经过期），不能默默吞掉
+    if (!error.isEmpty())
+        out() << "WARN=" << error << "\n";
 
     const LicenseInfo info = manager.current();
     out() << "INSTALLED=" << LicenseManager::defaultLicensePath() << "\n"
