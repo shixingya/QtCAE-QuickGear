@@ -1,0 +1,38 @@
+// Windows 版本资源（由 CMake 按 @PROJECT_VERSION@ 生成）
+//
+// 没有这个文件，exe 右键属性 → 详细信息是空的：用户报问题时说不清自己装的是哪一版，
+// 我们也没法从截图上一眼确认。版本号只跟着 project(... VERSION ...) 走，不另外写死。
+#include <windows.h>
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION    @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+ PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+ FILEFLAGSMASK  0x3fL
+#ifdef _DEBUG
+ FILEFLAGS      0x1L
+#else
+ FILEFLAGS      0x0L
+#endif
+ FILEOS         VOS_NT_WINDOWS32
+ FILETYPE       VFT_APP
+ FILESUBTYPE    0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404b0"
+        BEGIN
+            VALUE "CompanyName",      "QtCAE-QuickGear"
+            VALUE "FileDescription",  "齿轮 CAE 快速估算（示意后端）"
+            VALUE "FileVersion",      "@PROJECT_VERSION@"
+            VALUE "InternalName",     "QuickGear"
+            VALUE "LegalCopyright",   "壳工程 MIT；闭源求解器 All rights reserved"
+            VALUE "OriginalFilename", "QuickGear.exe"
+            VALUE "ProductName",      "QtCAE-QuickGear"
+            VALUE "ProductVersion",   "@PROJECT_VERSION@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200
+    END
+END

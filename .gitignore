@@ -2,6 +2,8 @@
 dist/
 build/
 build-*/
+# 自检产物（报告 PDF / 云图 PNG / 工程样本）：跑一次就生成，不进版本库
+out/
 *.log
 *.obj
 *.o

@@ -3,6 +3,7 @@
 #include "core/Ed25519.h"
 #include "core/LicenseBatch.h"
 #include "core/LicenseManager.h"
+#include "core/MockSolverBackend.h"
 #include "core/ProjectFile.h"
 #include "core/SolverFactory.h"
 #include "core/StlMesh.h"
@@ -24,6 +25,10 @@
 
 #include <cmath>
 #include <cstring>
+
+#ifdef Q_OS_WIN
+#  include <windows.h>   // 读 exe 的版本资源（GetFileVersionInfoW / VerQueryValueW）
+#endif
 
 /**
  * qgselftest：不依赖鼠标的冒烟自检。
@@ -171,6 +176,15 @@ bool writeBinaryStl(const QString &path, const QVector<Tri> &tris)
     return file.write(blob) == blob.size();
 }
 
+/** 原样写字节：构造"带尾巴"和"被截断"这种真实世界里常见的坏文件 */
+bool writeRaw(const QString &path, const QByteArray &bytes)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
+    return file.write(bytes) == bytes.size();
+}
+
 QString argValue(const QStringList &args, const QString &key, const QString &fallback)
 {
     const int index = args.indexOf(key);
@@ -228,9 +242,10 @@ double coverage(const QImage &image, bool requireColor)
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
-    // 与客户端保持一致，授权目录才能对齐
+    // 与客户端保持一致，授权目录才能对齐；版本也别写死——
+    // 写死过一次，自检生成的结论页页脚一直写着 0.2.0
     QApplication::setApplicationName(QStringLiteral("QtCAE-QuickGear"));
-    QApplication::setApplicationVersion(QStringLiteral("0.2.0"));
+    QApplication::setApplicationVersion(QStringLiteral(QTG_VERSION));
     QApplication::setOrganizationName(QStringLiteral("shixingya"));
 
     const QStringList args = QApplication::arguments();
@@ -273,6 +288,105 @@ int main(int argc, char *argv[])
                   .arg(ascii.mesh.area / 100.0, 0, 'f', 2));
     }
 
+    // ---- 1b. STL 的四种"看着像读进来了、其实在瞎猜"的情况 ----
+    {
+        // 封闭性：上面那个齿轮实体是真封闭的，必须认出来，体积还得对得上解析值。
+        // 只断言 volume > 0 是不够的：开口曲面算出来的有向体积也有正数。
+        const double segments = 24.0;                       // 12 齿 × 2
+        const double delta    = 2.0 * 3.14159265358979323846 / segments;
+        const double analyticArea = 0.5 * segments * 40.0 * 30.0 * std::sin(delta);
+        const double analyticVolume = analyticArea * 20.0;   // mm³，拉 20 mm
+
+        const double closedErr = ascii.ok
+            ? std::fabs(ascii.mesh.volume - analyticVolume) / analyticVolume
+            : 1.0;
+        check(ascii.ok && ascii.mesh.solidity == MeshSolidity::Closed
+                  && ascii.mesh.volumeUsable(),
+              QStringLiteral("stl-solidity-closed"),
+              ascii.ok ? QStringLiteral("判定=%1 · %2")
+                             .arg(solidityName(ascii.mesh.solidity), stlSummary(ascii.mesh))
+                       : ascii.error);
+        check(closedErr < 0.01, QStringLiteral("stl-volume-analytic"),
+              QStringLiteral("实测 %1 cm³ · 解析 %2 cm³ · 偏差 %3%")
+                  .arg(ascii.mesh.volume / 1000.0, 0, 'f', 3)
+                  .arg(analyticVolume / 1000.0, 0, 'f', 3)
+                  .arg(closedErr * 100.0, 0, 'f', 3));
+
+        // 尾部填充：很多导出器会在二进制 STL 末尾补字节，不能因此当 ASCII 去读
+        QFile binFile(binPath);
+        QByteArray binBytes;
+        if (binFile.open(QIODevice::ReadOnly)) {
+            binBytes = binFile.readAll();
+            binFile.close();
+        }
+        const QString paddedPath = QDir(outDir).filePath(QStringLiteral("gear_padded.stl"));
+        const bool paddedWritten = !binBytes.isEmpty()
+            && writeRaw(paddedPath, binBytes + QByteArray("\n\0\0\0\0\0\0\0\0", 9));
+        const StlLoadResult padded = paddedWritten ? loadStl(paddedPath) : StlLoadResult();
+        check(padded.ok && padded.format == StlLoadResult::Binary
+                  && padded.mesh.count() == binary.mesh.count(),
+              QStringLiteral("stl-binary-trailing-bytes"),
+              padded.ok ? QStringLiteral("尾部多 9 字节，仍按二进制读到 %1 面")
+                              .arg(padded.mesh.count())
+                        : padded.error);
+
+        // 截断：说"被截断、缺多少字节"，而不是让用户看到"没有可解析的三角形"
+        const QString cutPath = QDir(outDir).filePath(QStringLiteral("gear_cut.stl"));
+        const bool cutWritten = !binBytes.isEmpty()
+            && writeRaw(cutPath, binBytes.left(binBytes.size() / 2));
+        const StlLoadResult cut = cutWritten ? loadStl(cutPath) : StlLoadResult();
+        check(!cut.ok && cut.error.contains(QStringLiteral("截断")),
+              QStringLiteral("stl-binary-truncated"),
+              cut.ok ? QStringLiteral("截断文件居然读成功了") : cut.error);
+
+        // 残缺 facet：缺顶点的块必须整块丢弃，不能拿它跟下一块拼三角形
+        const QByteArray holey =
+            "solid holey\n"
+            "  facet normal 0 0 0\n    outer loop\n"
+            "      vertex 0 0 0\n      vertex 1 0 0\n      vertex 0 1 0\n"
+            "    endloop\n  endfacet\n"
+            "  facet normal 0 0 0\n    outer loop\n"
+            "      vertex 5 5 5\n      vertex 6 5 5\n"
+            "    endloop\n  endfacet\n"
+            "  facet normal 0 0 0\n    outer loop\n"
+            "      vertex 0 0 0\n      vertex 0 3 0\n      vertex 3 3 0\n"
+            "    endloop\n  endfacet\n"
+            "endsolid holey\n";
+        const QString holeyPath = QDir(outDir).filePath(QStringLiteral("holey.stl"));
+        const StlLoadResult holeyLoaded = writeRaw(holeyPath, holey) ? loadStl(holeyPath)
+                                                                    : StlLoadResult();
+        // 第二个三角形的坐标和 = 0+3+3+3 = 9；若与上一块的残块拼接，
+        // 就会变成 (5,5,5)+(6,5,5)+(0,0,0) 的 31，两个值差得很开
+        double secondSum = -1.0;
+        if (holeyLoaded.ok && holeyLoaded.mesh.count() >= 2) {
+            const StlTriangle &t = holeyLoaded.mesh.triangles.at(1);
+            secondSum = double(t.a.x() + t.a.y() + t.a.z()) + double(t.b.x() + t.b.y() + t.b.z())
+                      + double(t.c.x() + t.c.y() + t.c.z());
+        }
+        check(holeyLoaded.ok && holeyLoaded.mesh.count() == 2
+                  && holeyLoaded.mesh.malformedFacets == 1 && std::fabs(secondSum - 9.0) < 0.01,
+              QStringLiteral("stl-ascii-malformed-facet"),
+              holeyLoaded.ok
+                  ? QStringLiteral("保留 %1 面 · 丢弃 %2 个残缺面 · 次面坐标和 %3")
+                        .arg(holeyLoaded.mesh.count())
+                        .arg(holeyLoaded.mesh.malformedFacets)
+                        .arg(secondSum, 0, 'f', 1)
+                  : holeyLoaded.error);
+
+        // 开口网格：少一块面就不再是实体，体积必须报"不适用"而不是给个数
+        const QString openPath = QDir(outDir).filePath(QStringLiteral("gear_open.stl"));
+        const bool openWritten = writeBinaryStl(openPath, gear.mid(0, gear.size() - 1));
+        const StlLoadResult openMesh = openWritten ? loadStl(openPath) : StlLoadResult();
+        const QString openSummary = openMesh.ok ? stlSummary(openMesh.mesh) : QString();
+        check(openMesh.ok && openMesh.mesh.solidity == MeshSolidity::Open
+                  && !openMesh.mesh.volumeUsable()
+                  && openSummary.contains(QStringLiteral("非封闭")),
+              QStringLiteral("stl-open-no-volume"),
+              openMesh.ok ? QStringLiteral("判定=%1 · %2")
+                                .arg(solidityName(openMesh.mesh.solidity), openSummary)
+                          : openMesh.error);
+    }
+
     // ---- 2. 求解（内置 JSON 后端）----
     QScopedPointer<ISolverBackend> backend(createSolverBackend());
     check(!backend.isNull(), QStringLiteral("backend-create"),
@@ -288,6 +402,62 @@ int main(int argc, char *argv[])
               .arg(result.peakVonMises, 0, 'f', 1)
               .arg(result.safetyFactor, 0, 'f', 2)
               .arg(result.elements));
+
+    // ---- 2b. 网页端与客户端的公式口径必须一致 ----
+    // 两边各写一份经验式，迟早一边 350 一边 400；同一个参数在网页上给 n=2.92、
+    // 装完客户端变 3.33，是最容易被用户截图对比出来的一种不可信。
+    // 这里直接读 docs/index.html 的常量对账：改了一边没改另一边，自检会报。
+    {
+        const QString pagePath = QDir(QString::fromLatin1(QTG_SOURCE_DIR))
+                                     .filePath(QStringLiteral("docs/index.html"));
+        QFile page(pagePath);
+        const auto numberAfter = [](const QString &text, const QString &key, bool *ok) {
+            const int at = text.indexOf(key);
+            if (at < 0) {
+                *ok = false;
+                return 0.0;
+            }
+            int i = at + key.size();
+            while (i < text.size() && (text.at(i) == QLatin1Char(' ') || text.at(i) == QLatin1Char(':')))
+                ++i;
+            int begin = i;
+            while (i < text.size()
+                   && (text.at(i).isDigit() || text.at(i) == QLatin1Char('.')))
+                ++i;
+            bool converted = false;
+            const double value = text.mid(begin, i - begin).toDouble(&converted);
+            *ok = i > begin && converted;
+            return value;
+        };
+
+        if (!page.open(QIODevice::ReadOnly)) {
+            check(true, QStringLiteral("web-formula-parity"),
+                  QStringLiteral("未找到 docs/index.html（非源码树运行，跳过）"));
+        } else {
+            const QString html = QString::fromUtf8(page.readAll());
+            page.close();
+
+            bool ceilingOk = false;
+            bool allowOk   = false;
+            const double pageCeiling = numberAfter(html, QStringLiteral("allowStressMpa"), &ceilingOk);
+            const double pageAllow   = numberAfter(html, QStringLiteral("materialAllow"), &allowOk);
+            const double clientAllow = allowableStressMPa(params.material);
+            // 截断规则与单元数取整也得一致：只对齐常量不够
+            const bool capSame   = html.contains(QStringLiteral("Math.min(raw, CONFIG.allowStressMpa * 2)"));
+            const bool floorSame = html.contains(QStringLiteral("Math.floor(1.8e4"));
+
+            check(ceilingOk && allowOk && qAbs(pageCeiling - result.stressCeiling) < 1e-6
+                      && qAbs(pageAllow - clientAllow) < 1e-6 && capSame && floorSame,
+                  QStringLiteral("web-formula-parity"),
+                  QStringLiteral("量程 %1 vs %2 · 许用 %3 vs %4 · 截断 %5 · 取整 %6")
+                      .arg(pageCeiling, 0, 'f', 0)
+                      .arg(result.stressCeiling, 0, 'f', 0)
+                      .arg(pageAllow, 0, 'f', 0)
+                      .arg(clientAllow, 0, 'f', 0)
+                      .arg(capSame ? QStringLiteral("一致") : QStringLiteral("不一致"))
+                      .arg(floorSame ? QStringLiteral("一致") : QStringLiteral("不一致")));
+        }
+    }
 
     // ---- 3. 结论页导出（离屏渲染云图，不弹窗口）----
     StressView view;
@@ -847,6 +1017,51 @@ int main(int argc, char *argv[])
     LicenseBatch::issueAll(orders, dryDir, true, nullptr);
     check(!QDir(dryDir).exists(), QStringLiteral("license-batch-dry-run"),
           QStringLiteral("dry-run 未建目录、未写文件"));
+
+    // ---- 7. 发版物：版本号只有 project(... VERSION ...) 一处来源 ----
+    // 写死过一次 "0.2.0"，自检生成的结论页页脚就这么挂了三个月；
+    // exe 的版本资源也一样，对不上时用户报问题说不清自己装的是哪版。
+#ifdef Q_OS_WIN
+    {
+        const QString appPath = QDir(QCoreApplication::applicationDirPath())
+                                    .filePath(QStringLiteral("QuickGear.exe"));
+        QString fileVersion, productVersion, description, readError;
+        if (!QFileInfo::exists(appPath)) {
+            readError = QStringLiteral("未构建 QuickGear.exe，无法核对版本资源");
+        } else {
+            const QString nativePath = QDir::toNativeSeparators(appPath);
+            DWORD         ignored    = 0;
+            const DWORD   size       = ::GetFileVersionInfoSizeW(
+                reinterpret_cast<LPCWSTR>(nativePath.utf16()), &ignored);
+            QByteArray buffer(int(size), '\0');
+            if (size == 0) {
+                readError = QStringLiteral("exe 里没有版本资源");
+            } else if (!::GetFileVersionInfoW(reinterpret_cast<LPCWSTR>(nativePath.utf16()), 0,
+                                              size, buffer.data())) {
+                readError = QStringLiteral("版本资源读不出来");
+            } else {
+                auto query = [&buffer](const wchar_t *key) -> QString {
+                    void *value  = nullptr;
+                    UINT  length = 0;
+                    if (!::VerQueryValueW(buffer.constData(), key, &value, &length) || value == nullptr)
+                        return QString();
+                    return QString::fromWCharArray(static_cast<const wchar_t *>(value), int(length))
+                        .remove(QChar('\0'));
+                };
+                fileVersion    = query(L"\\StringFileInfo\\080404b0\\FileVersion");
+                productVersion = query(L"\\StringFileInfo\\080404b0\\ProductVersion");
+                description    = query(L"\\StringFileInfo\\080404b0\\FileDescription");
+            }
+        }
+        check(readError.isEmpty() && fileVersion == QStringLiteral(QTG_VERSION)
+                  && productVersion == QStringLiteral(QTG_VERSION) && !description.isEmpty(),
+              QStringLiteral("app-version-resource"),
+              readError.isEmpty()
+                  ? QStringLiteral("FileVersion=%1 · ProductVersion=%2 · 描述=%3")
+                        .arg(fileVersion, productVersion, description)
+                  : readError);
+    }
+#endif
 
     // ---- 汇总 ----
     g_out << Qt::endl

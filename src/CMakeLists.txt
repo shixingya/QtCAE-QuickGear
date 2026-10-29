@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(QtCAE-QuickGear VERSION 0.4.2 LANGUAGES CXX)
+project(QtCAE-QuickGear VERSION 0.4.3 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -104,6 +104,18 @@ add_executable(QuickGear WIN32
 
 target_link_libraries(QuickGear PRIVATE qgcore Qt${QT_VERSION_MAJOR}::Widgets)
 
+# Windows 版本资源：右键属性里要能读到版本号，别让用户靠翻安装日志回答"你装的是哪版"
+if (WIN32)
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/app.rc.in
+                   ${CMAKE_CURRENT_BINARY_DIR}/app.rc @ONLY)
+    target_sources(QuickGear PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/app.rc)
+    if (MINGW)
+        # .rc 里是 UTF-8 中文，windres 默认按本地 ANSI 读，会把描述写成乱码
+        set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/app.rc
+            PROPERTIES COMPILE_FLAGS "--codepage=65001")
+    endif()
+endif()
+
 # ---------------------------------------------------------------------------
 # qglicense：授权签发 / 校验工具（控制台，给开发者自己用）
 # ---------------------------------------------------------------------------
@@ -126,3 +138,10 @@ add_executable(qgselftest
 )
 target_include_directories(qgselftest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(qgselftest PRIVATE qgcore Qt${QT_VERSION_MAJOR}::Widgets)
+if (WIN32)
+    # 读 QuickGear.exe 的版本资源，核对版本号跟 project(VERSION) 是不是一路
+    target_link_libraries(qgselftest PRIVATE version)
+endif()
+# 一处"两边口径必须一致"的契约检查要用到网页端的源码，把源码根目录告诉自检
+target_compile_definitions(qgselftest PRIVATE
+    QTG_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/..")

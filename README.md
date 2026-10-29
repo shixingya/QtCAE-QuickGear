@@ -145,7 +145,8 @@ npx serve docs
 ```text
 QtCAE-QuickGear/
 ├─ docs/
-│  └─ index.html        # 开源演示页（GitHub Pages 源目录，单文件、纯前端）
+│  ├─ index.html        # 开源演示页（GitHub Pages 源目录，单文件、纯前端）
+│  └─ webcheck.js       # 网页端口径体检（node docs/webcheck.js，发布前跑一次）
 ├─ src/                 # 开源 Qt 壳工程（Qt5/Qt6 + CMake）
 │  ├─ CMakeLists.txt
 │  ├─ main.cpp
@@ -153,6 +154,8 @@ QtCAE-QuickGear/
 │  ├─ core/             # 参数模型 / 求解后端接口 / 示意后端 / STL 读取 / 工程文件 / 授权与 Ed25519（编为 qgcore 库）
 │  ├─ tools/            # qglicense：授权签发、密钥生成与校验；qgselftest：冒烟自检（均不随安装包发行）
 │  └─ README.md         # 构建方式、免安装包、闭源库接入、授权签发与文件格式
+├─ tools/
+│  └─ pack.ps1          # 免安装包打包（版本校验 + 固定 DLL 清单 + 使用说明 + zip）
 ├─ .gitignore           # 已屏蔽 build/、dist/、src/private/（闭源库目录）
 └─ README.md
 ```
@@ -168,10 +171,13 @@ QtCAE-QuickGear/
 - [x] 客户端激活链路：机器码生成 + 授权文件签名 / 验签 / 导入
 - [x] 授权签发工具 `qglicense`（machine / keygen / pubkey / issue / batch / renew / audit / verify / install）
 - [x] 免安装包（手工部署，干净 PATH 可直接启动）
+- [x] exe 版本资源（右键属性可查版本号，与 `project(VERSION)` 同源）
 - [x] STL 导入（二进制 / ASCII）+ 未求解时的几何投影预览
+- [x] STL 容错：尾部填充、截断、残缺 facet 都给准确原因；封闭性检测决定体积是否可报
 - [x] 结果导出：云图 PNG / 单页 A4 结论 PDF（未授权自动加水印）
 - [x] 工程文件 `.qgpj` + 拖放打开 + 最近文件 + 求解日志面板
-- [x] `qgselftest` 冒烟自检（40 项，含 Ed25519 RFC 8032 官方向量、续费门禁、PDF 单页、渲染覆盖率、授权到期与批量签发断言）
+- [x] `qgselftest` 冒烟自检（48 项，含 Ed25519 RFC 8032 官方向量、续费门禁、PDF 单页、渲染覆盖率、授权到期与批量签发、STL 封闭性与网页/客户端公式口径断言）
+- [x] 网页端与客户端同一套数值口径（`docs/webcheck.js` 直接在沙箱里跑页面脚本对账）
 - [x] 签名升级为 Ed25519 公钥验签（客户端只带公钥，旧 HMAC 授权仍可验）
 - [x] 授权经营链路：台账批量签发 + 交付单、一键续费（`renew`）、客户端到期徽标与提醒、`qglicense audit` 续费审计
 - [ ] 授权在线自助续期（当前为离线人工签发）

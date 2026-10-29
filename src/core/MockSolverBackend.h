@@ -22,3 +22,11 @@ public:
 
     SolveResult solve(const GearParams &params, const ProgressFn &onProgress) override;
 };
+
+/**
+ * 材料许用应力（MPa）。
+ *
+ * 开放出来是因为网页演示端要用同一个数：两边各写一份，迟早一边 350 一边 400，
+ * 同一个参数在网页上给 2.92、在客户端给 3.33，用户截图一对就知道不可信。
+ */
+double allowableStressMPa(const QString &material);

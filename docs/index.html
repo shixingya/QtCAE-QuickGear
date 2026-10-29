@@ -421,7 +421,7 @@ const CONFIG = {
   dailyLimit: 10,
   storageKey: 'qtcae-quickgear.trial.v1',
   allowStressMpa: 320,          // 图例量程上限（示意）
-  materialAllow: 350,           // 安全系数计算用的许用应力（示意）
+  materialAllow: 400,           // 安全系数用的许用应力 = 客户端默认材料 20CrMnTi
   cdnTimeout: 6000,             // 单个 CDN 的加载超时，超时即切换下一个
   // three.js 多 CDN 兜底（国内网络优先 npmmirror，其次海外源）
   threeCdn: [
@@ -594,14 +594,18 @@ function fallbackFingerprint() {
     navigator.hardwareConcurrency || 0,
     navigator.deviceMemory || 0
   ].join('|');
-  // FNV-1a 32 位 + 简单扩散，拼成 32 位 hex
-  let h1 = 0x811c9dc5, h2 = 0x01000193;
+  // FNV-1a 32 位 + 简单扩散，拼成 32 位 hex。
+  // 乘法必须走 Math.imul：两个 32 位数直接相乘会超过 2^53，低位被舍入吃掉，
+  // 结果低位常年为 0，哈希质量退化，不同设备的碰撞率会升高。
+  let h1 = 0x811c9dc5 | 0, h2 = 0x01000193 | 0;
   for (let i = 0; i < parts.length; i++) {
-    h1 = (h1 ^ parts.charCodeAt(i)) * 16777619 >>> 0;
-    h2 = (h2 + parts.charCodeAt(i) * (i + 7)) >>> 0;
+    const c = parts.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 16777619);
+    h2 = Math.imul(h2 + c * (i + 7), 16777619);
   }
-  const seg = (n) => n.toString(16).padStart(8, '0');
-  return seg(h1) + seg(h2) + seg(h1 ^ h2) + seg((h1 + h2) >>> 0);
+  // imul 返回的是有符号 int32，拼 hex 前必须转回无符号，否则会拼出 "-7b" 这种带负号的段
+  const seg = (n) => (n >>> 0).toString(16).padStart(8, '0');
+  return seg(h1) + seg(h2) + seg(h1 ^ h2) + seg(h1 + h2);
 }
 
 /** 初始化指纹，并合并本地记录 */
@@ -669,6 +673,8 @@ function renderQuota() {
   }
 }
 
+let modalOpener = null;   // 弹窗关掉后把焦点还回去，否则键盘用户会被丢回 body
+
 /**
  * 打开设备码弹窗。
  * reason = 'exhausted' 额度耗尽时自动弹出，标题指向“次数用完”；
@@ -681,6 +687,7 @@ function openModal(reason = 'manual') {
     ? '复制下方设备码，联系开发者获取 Qt 本地版激活授权。'
     : '这是本机浏览器生成的设备码，可用于与开发者沟通试用与授权。';
   quotaEls.machineCode.textContent = trial.fp || '识别失败，请刷新页面重试';
+  modalOpener = document.activeElement;
   quotaEls.modal.hidden = false;
   document.body.style.overflow = 'hidden';
   quotaEls.copyBtn.focus();
@@ -688,6 +695,8 @@ function openModal(reason = 'manual') {
 function closeModal() {
   quotaEls.modal.hidden = true;
   document.body.style.overflow = '';
+  if (modalOpener && typeof modalOpener.focus === 'function') modalOpener.focus();
+  modalOpener = null;
 }
 
 /** 复制设备码：优先 Clipboard API，失败降级 execCommand */
@@ -972,6 +981,7 @@ async function initViewer() {
 /** 重建齿轮副（参数变化时调用） */
 function rebuild() {
   if (!scene) return;
+  const firstBuild = !assembly;   // 首次构建才允许把视角转回默认朝向
   if (assembly) {
     scene.remove(assembly);
     assembly.traverse(obj => {
@@ -1015,7 +1025,9 @@ function rebuild() {
   contactB = { x: -mB.rp * 0.96, y: 0 };
   baseRadius = Math.max(mA.ra, mB.ra);
 
-  resetView();
+  // 首次构建定朝向；后续重建只重新适配尺寸，不抢用户手里的视角
+  if (firstBuild) resetView();
+  else refitView();
   setStatus('idle', '未求解');
   clearResults();
   state.solved = false;
@@ -1045,6 +1057,30 @@ function resetView() {
   const fov = camera.fov * Math.PI / 180;
   const fit = sphere.radius / Math.sin(fov / 2) * 1.12;
   const dir = new THREE.Vector3(0.32, -0.52, 0.79).normalize();
+  camera.position.copy(sphere.center).add(dir.multiplyScalar(fit));
+  camera.near = Math.max(fit / 100, 0.1);
+  camera.far = fit * 20;
+  camera.updateProjectionMatrix();
+  controls.target.copy(sphere.center);
+  controls.sync();
+  camera.lookAt(controls.target);
+}
+
+/**
+ * 参数重建后的取景：方向不变，只按新尺寸重算距离。
+ *
+ * 转向齿根看细节时拖一下模数滑块就被踢回默认视角，是很让人恼火的一件事；
+ * 而完全不动相机也不行——模数翻倍就是零件尺寸翻倍，固定距离不是裁切就是把
+ * 模型缩成一小团。所以取中间：保方向、改距离与裁剪面。
+ */
+function refitView() {
+  if (!assembly) return;
+  const sphere = new THREE.Box3().setFromObject(assembly).getBoundingSphere(new THREE.Sphere());
+  const fov = camera.fov * Math.PI / 180;
+  const fit = sphere.radius / Math.sin(fov / 2) * 1.12;
+  const dir = camera.position.clone().sub(controls.target);
+  if (dir.lengthSq() < 1e-9) dir.set(0.32, -0.52, 0.79);
+  dir.normalize();
   camera.position.copy(sphere.center).add(dir.multiplyScalar(fit));
   camera.near = Math.max(fit / 100, 0.1);
   camera.far = fit * 20;
@@ -1114,18 +1150,25 @@ function applyStress() {
   state.solved = true;
 }
 
-/** 示意结果：由齿数/模数/扭矩估算，仅用于展示 UI 形态 */
+/**
+ * 示意结果：由齿数/模数/扭矩估算，仅用于展示 UI 形态。
+ *
+ * 与 Qt 客户端 MockSolverBackend::solve 是同一套经验式，因此截断规则和
+ * 安全系数口径必须一模一样——同一个参数在网页上看到 2.92、装完客户端变成
+ * 3.33，是最容易被截图对比的一种"不可信"。任一侧单方面截断都不行。
+ */
 function estimateResults() {
   const { z, m, T } = state;
-  const sigma = 12 * T / Math.pow(m, 3) * Math.sqrt(24 / z);
-  const disp = sigma * 0.09;
-  const elems = Math.round(1.8e4 * Math.pow(z / 24, 1.15) * Math.pow(2 / m, 1.6));
-  const sf = CONFIG.materialAllow / sigma;
+  const raw = 12 * T / Math.pow(m, 3) * Math.sqrt(24 / z);
+  // σv 截到量程上限的 2 倍（图例之外的红区）；后面的 n 与位移都用截断后的值算，
+  // 否则面板上"σv 512、n 0.46"两个数乘起来对不上许用应力
+  const sigma = Math.min(raw, CONFIG.allowStressMpa * 2);
   return {
-    sigma: Math.min(sigma, CONFIG.allowStressMpa * 1.6),
-    disp,
-    elems,
-    sf: Math.min(sf, 9.99)
+    sigma,
+    disp: sigma * 0.09,
+    // 客户端是 static_cast<int>，是截断不是四舍五入
+    elems: Math.floor(1.8e4 * Math.pow(z / 24, 1.15) * Math.pow(2 / m, 1.6)),
+    sf: CONFIG.materialAllow / sigma
   };
 }
 
@@ -1205,7 +1248,9 @@ async function runPreview() {
 
   if (trial.used >= CONFIG.dailyLimit) {
     renderQuota();
-    setTimeout(openModal, 420);   // 最后一次用完后立即引导
+    // 必须包一层：直接把函数交给 setTimeout 等于无参调用，
+    // reason 落到 'manual'，弹窗会顶着"本机设备码"的标题——恰好在此刻最不该出现的文案
+    setTimeout(() => openModal('exhausted'), 420);   // 最后一次用完后立即引导
   }
 }
 

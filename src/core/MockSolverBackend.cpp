@@ -23,8 +23,9 @@ const QVector<Stage> kStages = {
     { 92, QStringLiteral("结果后处理 / 云图映射"),    140 },
 };
 
-/** 材料许用应力（MPa），仅用于演示安全系数量级 */
-double allowableStress(const QString &material)
+} // namespace
+
+double allowableStressMPa(const QString &material)
 {
     if (material.contains(QStringLiteral("45")))
         return 300.0;                       // 45 钢调质
@@ -36,8 +37,6 @@ double allowableStress(const QString &material)
         return 60.0;
     return 350.0;
 }
-
-} // namespace
 
 QString MockSolverBackend::displayName() const
 {
@@ -74,9 +73,11 @@ SolveResult MockSolverBackend::solve(const GearParams &params, const ProgressFn 
     const double m = params.module;
     const double T = params.torque;
 
-    // 峰值应力：与网页端同一套经验式，保证"网页预览 ≈ 客户端展示"体感一致
+    // 峰值应力：与网页端同一套经验式，保证"网页预览 ≈ 客户端展示"体感一致。
+    // 截断线 640 = 量程 320 的两倍：网页端 docs/index.html 的 estimateResults
+    // 用的是同一个规则，改这里必须同步改那边，否则同一个参数两边给出两个数。
     const double sigma = 12.0 * T / qPow(m, 3.0) * qSqrt(24.0 / z);
-    const double limit = allowableStress(params.material);
+    const double limit = allowableStressMPa(params.material);
 
     result.peakVonMises  = qMin(sigma, 640.0);
     result.maxDeflection = result.peakVonMises * 0.09;

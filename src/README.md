@@ -26,7 +26,8 @@ src/
 │  ├─ ISolverBackend.h         求解后端抽象 + SolveResult
 │  ├─ MockSolverBackend.*      内置示意后端（经验公式，非有限元）
 │  ├─ SolverFactory.*          按编译开关选择后端
-│  ├─ StlMesh.*                STL 读取（二进制 / ASCII）、包围盒、体积、表面积
+│  ├─ StlMesh.*                STL 读取（二进制 / ASCII）、包围盒、体积、表面积、
+│  │                           封闭性与绕序一致性
 │  ├─ ProjectFile.*            .qgpj 工程文件（参数 + 结果摘要 + 几何路径 + 备注）
 │  ├─ LicenseManager.*         机器码生成 + 授权签名/验签 + 状态与剩余天数
 │  └─ LicenseBatch.*           台账批量签发 + 交付单（manifest.csv）
@@ -91,6 +92,10 @@ Qt 6 亦可：`-DCMAKE_PREFIX_PATH=D:\Qt\6.x.x\msvc2019_64`，CMake 里 `find_pa
 
 - **导入几何只做预览，不参与求解。** 闭源求解器吃的是参数化齿轮，STL 只用来核对外形；
   视口会明确标“仅预览，不参与求解”，不出结果时也不挂色标——不画不存在的数据。
+- **体积只在网格封闭时才敢报。** 读入后做一遍顶点焊接 + 边配对：每条无向边必须被两个
+  三角形以相反方向各用一次，才算封闭且绕序一致。开口曲面片算出来的有向体积是个无意义的数，
+  界面写“体积不适用（网格非封闭）”，而不是给一个带小数点的假数。面数超过 20 万就不做这项
+  统计（哈希表会吃几百 MB），报“未统计”。
 - **导出的图不是截屏。** 导出走离屏 `StressView` 单独渲染，PDF 里图例和标注不会糊。
 - **结论页必须一页。** 自检里有硬断言（读 PDF 对象的 `/Count`），排版漂移会当场失败。
   实测云图宽 680 px 是单页上限，760 px 就会溢出成两页。
@@ -112,11 +117,19 @@ Qt 6 亦可：`-DCMAKE_PREFIX_PATH=D:\Qt\6.x.x\msvc2019_64`，CMake 里 `find_pa
 .\build\qgselftest.exe --out out\selftest
 ```
 
-退出码 `0` 表示全过。当前 26 项，覆盖：
+退出码 `0` 表示全过。当前 48 项，覆盖：
 
-- **STL**：自己写 ASCII / 二进制两份再读回来，逐项比对面数、包围盒、体积（两格式体积差 < 1 mm³）
+- **STL**：自己写 ASCII / 二进制两份再读回来，逐项比对面数、包围盒、体积（两格式体积差 < 1 mm³）；
+  体积还要对得上解析值（星形柱体 74.540 cm³，偏差 < 1%）——只断言 `volume > 0` 是拦不住错的，
+  开口曲面的有向体积也可能是正数
+- **STL 容错**：尾部补 9 个字节仍按二进制读（不能因为长度不精确就回落到 ASCII）；
+  截断文件报“需 N 字节、实际只有 M 字节”；一个 facet 只有 2 个顶点时整块丢弃并计数
+  （否则上一块的残顶点会和下一块拼出一个不存在的三角形）；抽掉一块面后必须判为“非封闭”
+  且体积不可报
 - **求解**：后端能创建、能出非零应力与每齿数组
-- **渲染**：视口非空 + **饱和像素占比**断言（当初就是它抓到“视口空白”的绘制顺序 bug）
+- **口径对齐**：直接读 `docs/index.html` 的常量与客户端对账（量程 320 / 许用 400 / 截断 ×2 / 取整规则），
+  改了一边没改另一边，自检会报
+- **渲染**：视口非空 + **饱和像素占比** 断言（当初就是它抓到“视口空白”的绘制顺序 bug）
 - **导出**：PDF 大小、**页数必须为 1**、PNG 大小、水印确实叠上了
 - **结论页**：用同一份 HTML 渲染一张 `report_preview.png`，汉字错位/豆腐块一眼能看出来
 - **工程文件**：存了再读，逐字段比对（含备注、几何路径、每齿数组长度）
@@ -124,26 +137,50 @@ Qt 6 亦可：`-DCMAKE_PREFIX_PATH=D:\Qt\6.x.x\msvc2019_64`，CMake 里 `find_pa
   剩 10 天判 `Valid` 且在提醒窗口内、过期 3 天判 `Expired`（过期必须盖过“机器匹配”）；
   台账 5 行里 1 行坏码只拒它自己；批量写出 2 份 + 交付单 2 行且带 BOM；
   **dry-run 不许建目录、不许落盘**
+- **发版物**：读 `QuickGear.exe` 的版本资源，`FileVersion` / `ProductVersion` 必须等于
+  `project(... VERSION ...)`。版本号一度散在三处（工程、自检页脚、docs），
+  现在只剩一处来源，exe 属性里能看到什么就是什么
 
 产物都在 `--out` 目录：`report.pdf`、`report_preview.png`、`stress.png`、`mesh_preview.png`、
 `selftest.qgpj`，以及 `issued/`（批量签发的授权与 `manifest.csv`）。
+
+### 网页端也要体检：`docs/webcheck.js`
+
+客户端改了公式，网页那边不会报错——它只会默默给出另一个数。发布前从仓库根目录跑：
+
+```bash
+node docs/webcheck.js
+```
+
+它把 `docs/index.html` 的内联脚本放进 node 沙箱真跑一遍，验证：JS 语法与顶层执行没问题、
+`estimateResults()` 与 `MockSolverBackend::solve` 在 5 组参数上逐字段一致（σ / 位移 / 单元数 / n）、
+降级指纹仍产出合法 32 位 hex。不需要开浏览器，也不需要网络。
 
 ---
 
 ## 免安装包（发给试用用户）
 
-`windeployqt` 在部分 Qt 安装下会报 `Unable to find the platform plugin`，此时手工部署更稳（本仓库实测用这种方式）：
+发版时从仓库根目录跑一句（PATH 里需要有 Qt 的 `bin` 和 MinGW 的 `bin`，脚本靠 `qmake -query` 自己找 DLL）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\pack.ps1
+```
+
+它会做三件手搓容易漏的事：核对 `QuickGear.exe` 的版本资源跟 `project(VERSION)` 是否一致（对不上直接拒绝打包，免得把上一版的壳发给客户）；按固定清单拉齐 9 个二进制；再写一份 `使用说明.txt`（运行、授权、MOCK 角标、怎么报问题）一起压成 zip。
+
+`windeployqt` 在部分 Qt 安装下会报 `Unable to find the platform plugin`，所以脚本直接按清单取源文件，不走它：
 
 ```text
-dist/QuickGear-0.1.0-win64/
+dist/QuickGear-0.4.3-win64/
 ├─ QuickGear.exe
 ├─ Qt5Core.dll  Qt5Gui.dll  Qt5Widgets.dll
 ├─ platforms/qwindows.dll        ← 缺这个会报 “could not find or load the Qt platform plugin”
 ├─ styles/qwindowsvistastyle.dll
-└─ libgcc_s_seh-1.dll  libstdc++-6.dll  libwinpthread-1.dll   ← MinGW 运行时
+├─ libgcc_s_seh-1.dll  libstdc++-6.dll  libwinpthread-1.dll   ← MinGW 运行时
+└─ 使用说明.txt                   ← 试用用户手上唯一的一份说明
 ```
 
-实测体积：解包 30.1 MB，zip 11.1 MB。`dist/` 已被 `.gitignore` 屏蔽，走 Release 附件或网盘分发。
+实测体积：解包 30.3 MB，zip 11.1 MB。`dist/` 已被 `.gitignore` 屏蔽，走 Release 附件或网盘分发。
 
 > 验证方式：把 Qt / MinGW 从 `PATH` 里去掉再启动，能起来才说明包是自包含的。
 
@@ -446,10 +483,13 @@ v0.3 及更早的文件没有 `alg` 字段，按 HMAC 读取，照旧能用：
 - [x] `qglicense` 签发工具（machine / keygen / pubkey / issue / batch / renew / audit / verify / install）
 - [x] 免安装包部署（手工部署 9 个文件，干净 PATH 可启动）
 - [x] STL 导入（二进制 / ASCII）+ 未求解时的几何预览
+- [x] STL 容错与诚实报数：尾部填充 / 截断 / 残缺 facet 都给准确原因，
+  封闭性检测决定体积能不能报
 - [x] 结论页导出（单页 A4 PDF）/ 云图导出（PNG），未授权自动加水印
 - [x] 工程文件 `.qgpj`（参数 + 结果 + 几何路径 + 备注，原子写）
 - [x] 拖放打开、最近文件、`QSettings` 记忆、求解日志面板
-- [x] `qgselftest` 冒烟自检（40 项，含 Ed25519 RFC 8032 向量、续费门禁、PDF 页数与渲染覆盖率断言）
+- [x] `qgselftest` 冒烟自检（48 项，含 Ed25519 RFC 8032 向量、续费门禁、PDF 页数与渲染覆盖率断言）
+- [x] Windows 版本资源：exe 属性里的版本号跟 `project(VERSION)` 同一个来源
 - [ ] 闭源求解器接入（需加密库）
 - [x] 签名升级为 Ed25519 公钥验签（私钥只在签发侧）
 - [x] 导入路径原子替换（不再“先删再拷”，失败不会两头落空）
