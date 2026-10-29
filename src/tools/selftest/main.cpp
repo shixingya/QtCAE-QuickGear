@@ -741,6 +741,48 @@ int main(int argc, char *argv[])
                       QStringLiteral("v%1").arg(LicenseManager::kFormatVersion + 1))
                   && future.message.contains(QStringLiteral("升级客户端")),
               QStringLiteral("license-format-too-new"), future.message);
+
+        // 续费只能拿验签通过的旧授权：否则等于替伪造者把假授权洗成真的
+        const QString tamperedPath =
+            QDir(licenseDir).filePath(QStringLiteral("self-tampered-renew.qglic"));
+        {
+            QFile src(edPath);
+            if (src.open(QIODevice::ReadOnly)) {
+                QByteArray bytes = src.readAll();
+                src.close();
+                bytes.replace("Ed25519 往返客户", "Ed25519 往返客尸");   // 改一个字，签名就对不上
+                QFile dst(tamperedPath);
+                if (dst.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                    dst.write(bytes);
+                    dst.close();
+                }
+            }
+        }
+        const LicenseInfo tampered = LicenseManager::parseFile(tamperedPath, true);
+        const bool notRenewable = !LicenseManager::licenseIsRenewable(tampered)
+                                  && !LicenseManager::licenseIsRenewable(LicenseInfo());
+        // 可续的三种：有效（本机）、他机、已过期——共同点是验签都过得去。
+        // 注意不能用 fromDisk：那份是特地用另一把种子签的，本来就该是 BADSIG。
+        const QString foreignPath = QDir(licenseDir).filePath(QStringLiteral("self-foreign-renew.qglic"));
+        LicenseManager::writeLicenseFile(foreignPath, QStringLiteral("3F1B-92C4-7E10-AB35-6612-0D8C-4F5E-2299"),
+                                         QStringLiteral("他机客户"), edEdition, issuedOn, expireOn);
+        const LicenseInfo foreignInfo = LicenseManager::parseFile(foreignPath, true);
+        const bool        renewable =
+            LicenseManager::licenseIsRenewable(hmacInfo)            // Valid
+            && LicenseManager::licenseIsRenewable(foreignInfo)      // ForeignMachine
+            && LicenseManager::licenseIsRenewable(LicenseManager::parseFile(expiredPath, true));
+        check(notRenewable && renewable, QStringLiteral("license-renewable-gate"),
+              QStringLiteral("伪造/空文件不得续费 · 有效/他机/过期可续 · 篡改件 STATE=%1 他机 STATE=%2")
+                  .arg(LicenseManager::stateName(tampered.state),
+                       LicenseManager::stateName(foreignInfo.state)));
+
+        // 续费起算日：提前续费接旧到期日，过期后续从今天算
+        const QDate inTenDays = today.addDays(10);
+        check(LicenseManager::renewalBase(inTenDays) == inTenDays
+                  && LicenseManager::renewalBase(today.addDays(-200)) == today
+                  && LicenseManager::renewalBase(QDate()) == today,
+              QStringLiteral("license-renewal-base"),
+              QStringLiteral("提前续接旧到期日 · 过期从今天算 · 永久从今天算"));
     }
 
     // 台账：表头 + 注释 + 一行连写小写机器码 + 一行带逗号的公司名 + 一行抄错的码

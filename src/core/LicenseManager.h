@@ -175,6 +175,21 @@ public:
     static QString algName(const QString &alg);
 
     /**
+     * 这张旧授权能不能拿来续费（把 machine/licensee/edition 原样搬进新授权）。
+     *
+     * 只认验签通过的文件。这不是洁癖：续费等于拿我们的私钥给文件里的授权对象签名，
+     * 一张伪造件里想填什么就填什么，照单签下去就是帮伪造者把假授权洗成真的。
+     * 已过期、绑的是客户机器（ForeignMachine）都算可用；读不出 / 验不过一律不算。
+     */
+    static bool licenseIsRenewable(const LicenseInfo &info);
+
+    /**
+     * 续费起算日：从旧到期日接着算，但不早于今天。
+     * 提前续费不该白丢剩余天数；过期半年才续也不该只拿到剩下半张。
+     */
+    static QDate renewalBase(const QDate &oldExpire);
+
+    /**
      * 当前读写都认的授权文件格式版本。
      * v1 = HMAC，无 alg 字段；v2 = 带 alg，ed25519 或 hmac。
      * 读到比这更大的 v 时一律拒结并提示升级客户端——将来真改了签名串

@@ -19,6 +19,7 @@
  *   qglicense keygen [--out <private.key>]              生成 Ed25519 密钥对（私钥只在签发机）
  *   qglicense issue --licensee <name> [--days 365] 签发单张授权（默认绑本机）
  *   qglicense batch --in <台账.csv> [--out <目录>] 批量签发 + 出一张交付单
+ *   qglicense renew [<旧.qglic>] [--days 365]      续费：字段从旧授权搬，日期顺延
  *   qglicense audit <目录|文件…> [--days 30]        扫描已签授权，列出该续费的客户
  *   qglicense verify [file]                        校验授权（默认校验已安装的那份）
  *   qglicense install <file>                       把授权安装到客户端读取路径
@@ -57,6 +58,7 @@ void printUsage()
           << "                 [--expire 2027-12-31] [--issued 2026-10-28]\n"
           << "                 [--machine <CODE>] [--out <file>] [--key <file>]\n"
           << "  qglicense batch --in <ledger.csv> [--out <dir>] [--dry-run] [--key <file>]\n"
+          << "  qglicense renew [<old.qglic>] [--days 365] [--out <file>] [--key <file>]\n"
           << "  qglicense audit <dir|file>... [--days 30] [--csv <out.csv>]\n"
           << "  qglicense verify [<file>]\n"
           << "  qglicense install <file>\n\n"
@@ -595,6 +597,100 @@ int doInstall(const QStringList &args)
     return info.valid ? 0 : 1;
 }
 
+/**
+ * renew：拿上一张授权直接续费。
+ *
+ * 续费是最高频的动作，但手工做要回填三个字段（机器码/授权对象/版本），
+ * 抄错一个就多一轮沟通。这里从旧文件里搬，只改日期。
+ *
+ * 平安的关键在“先验再用”：续费等于拿我们的私钥给文件里的授权对象签名，
+ * 一张伪造件里想填什么就填什么，照单签下去就是帮伪造者把假授权洗成真的。
+ * 所以 licenseIsRenewable() 不通过就拒绝，绝不“先签了再说”。
+ */
+int doRenew(const QStringList &args)
+{
+    QStringList                   positional;
+    const QHash<QString, QString> opts = parseOptions(args, &positional);
+
+    const QString oldPath = positional.isEmpty() ? LicenseManager::defaultLicensePath()
+                                                  : positional.first();
+    const LicenseInfo old = LicenseManager::parseFile(oldPath, false);
+    if (old.state == LicenseState::Missing) {
+        err() << "ERROR=no license file to renew: " << QDir::toNativeSeparators(oldPath) << "\n";
+        err().flush();
+        return 1;
+    }
+    if (!LicenseManager::licenseIsRenewable(old)) {
+        err() << "ERROR=refusing to renew: " << old.message << "\n"
+              << "STATE=" << LicenseManager::stateName(old.state) << "\n";
+        err().flush();
+        return 4;
+    }
+
+    bool      ok   = false;
+    const int days = opts.value(QStringLiteral("days"), QStringLiteral("365")).toInt(&ok);
+    if (!ok || days <= 0) {
+        err() << "ERROR=invalid --days\n";
+        err().flush();
+        return 2;
+    }
+
+    // 从旧到期日接着算，但不能早于今天：提早续费不白丢剩余天数，
+    // 过期半年才续也不该只拿到剩下半张
+    const QDate issued = LicenseManager::renewalBase(old.expire);
+    const QDate expire = issued.addDays(days);
+
+    QString         keyWarning;
+    const QByteArray seed = signingSeed(opts, &keyWarning);
+    if (seed.isEmpty()) {
+        err() << "ERROR=" << keyWarning << "\n";
+        err().flush();
+        return 2;
+    }
+    if (!keyWarning.isEmpty())
+        out() << "WARN=" << keyWarning << "\n";
+
+    QString outPath = opts.value(QStringLiteral("out")).trimmed();
+    if (outPath.isEmpty()) {
+        outPath = QDir::current().filePath(
+            QStringLiteral("license-%1-%2.qglic")
+                .arg(LicenseManager::normalizeMachineCode(old.boundMachine).left(9),
+                     expire.toString(Qt::ISODate)));
+    } else if (!outPath.endsWith(QLatin1String(".qglic"), Qt::CaseInsensitive)) {
+        outPath += QStringLiteral(".qglic");
+    }
+
+    QString sig;
+    QString error;
+    if (!LicenseManager::writeLicenseFile(outPath, old.boundMachine, old.licensee, old.edition,
+                                          issued, expire, &sig, &error, seed)) {
+        err() << "ERROR=" << error << "\n";
+        err().flush();
+        return 3;
+    }
+
+    out() << "RENEWED=" << QFileInfo(outPath).absoluteFilePath() << "\n"
+          << "MACHINE=" << old.boundMachine << "\n"
+          << "LICENSEE=" << old.licensee << "\n"
+          << "PREVIOUS_EXPIRES="
+          << (old.expire.isValid() ? old.expire.toString(Qt::ISODate)
+                                   : QStringLiteral("perpetual"))
+          << "\n"
+          << "STARTS=" << issued.toString(Qt::ISODate) << "\n"
+          << "EXPIRES=" << expire.toString(Qt::ISODate) << "\n"
+          << "ALG=ed25519\n";
+
+    QByteArray derived;
+    Ed25519::derivePublicKey(seed, &derived);
+    const QByteArray embedded = LicenseManager::signingPublicKey();
+    if (!embedded.isEmpty() && derived != embedded) {
+        out() << "WARN=signing key does not match the public key embedded in this build; "
+                 "clients built from here will reject this license\n";
+    }
+    out().flush();
+    return 0;
+}
+
 int doPubkey(const QHash<QString, QString> &opts)
 {
     // 从私钥反推公钥：换机器重建客户端时，公钥填什么不该靠翻旧提交
@@ -660,6 +756,8 @@ int main(int argc, char *argv[])
         return doAudit(args);
     if (command == QLatin1String("verify"))
         return doVerify(args);
+    if (command == QLatin1String("renew"))
+        return doRenew(args);
     if (command == QLatin1String("install"))
         return doInstall(args);
     if (command == QLatin1String("-h") || command == QLatin1String("--help")

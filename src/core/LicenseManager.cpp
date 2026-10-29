@@ -181,6 +181,31 @@ QString LicenseManager::algName(const QString &alg)
     return alg.isEmpty() ? QStringLiteral("未知") : alg;
 }
 
+bool LicenseManager::licenseIsRenewable(const LicenseInfo &info)
+{
+    if (!info.signatureChecked)
+        return false;
+    switch (info.state) {
+    case LicenseState::Valid:
+    case LicenseState::Expired:
+    case LicenseState::ForeignMachine:
+        return true;
+    case LicenseState::Missing:
+    case LicenseState::Unreadable:
+    case LicenseState::BadSignature:
+        return false;
+    }
+    return false;
+}
+
+QDate LicenseManager::renewalBase(const QDate &oldExpire)
+{
+    const QDate today = QDate::currentDate();
+    if (!oldExpire.isValid())
+        return today;                      // 永久授权续成有限期，从今天算
+    return oldExpire > today ? oldExpire : today;
+}
+
 LicenseInfo LicenseManager::parseFile(const QString &path, bool checkMachine)
 {
     LicenseInfo info;

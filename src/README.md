@@ -300,6 +300,26 @@ issued/
 它和授权文件是**同一次调用里一起写的**——只发文件不记账，
 三批之后就说不清谁买到哪天了。
 
+### 续费：一条命令，不用手抄三个字段
+
+```powershell
+# 拿旧的授权文件直接续一年（默认续本机已装的那张）
+.\build\qglicense.exe renew issued\qglic-某某机械厂-2027-10-29.qglic --days 365
+#    RENEWED=...\license-A20A-7BF9-2028-10-28.qglic
+#    MACHINE=A20A-7BF9-... LICENSEE=某某机械厂
+#    PREVIOUS_EXPIRES=2027-10-29
+#    STARTS=2027-10-29  EXPIRES=2028-10-29
+```
+
+机器码、授权对象、版本都从旧文件里搬，只改日期。两条规则：
+
+- **起算日 = max(今天, 旧到期日)**。提前续费不白丢剩余天数（从旧到期日接着算），
+  过期半年才续也不至于只拿到剩下半张（从今天算）。
+- **只给验签通过的旧授权续费**（`STATE=VALID` / `EXPIRED` / `FOREIGN`）。
+  读不出或签名对不上的直接 `EXIT=4`，**一个文件都不会写**。
+  这不是洁癖：续费等于拿我们的私钥给文件里的授权对象签名，一张伪造件里
+  想填什么就填什么，照单签下去就是替伪造者把假授权洗成真的。
+
 ### 到期审计：谁该续费了
 
 ```powershell
@@ -423,13 +443,13 @@ v0.3 及更早的文件没有 `alg` 字段，按 HMAC 读取，照旧能用：
 - [x] 求解流程（QThread + 进度条 + 结果回填）
 - [x] 云图视图（按齿着色 + 色标图例 + MOCK 角标）
 - [x] 机器码生成、Ed25519 公钥签名（旧 HMAC 授权仍可验）、验签与导入
-- [x] `qglicense` 签发工具（machine / keygen / pubkey / issue / batch / audit / verify / install）
+- [x] `qglicense` 签发工具（machine / keygen / pubkey / issue / batch / renew / audit / verify / install）
 - [x] 免安装包部署（手工部署 9 个文件，干净 PATH 可启动）
 - [x] STL 导入（二进制 / ASCII）+ 未求解时的几何预览
 - [x] 结论页导出（单页 A4 PDF）/ 云图导出（PNG），未授权自动加水印
 - [x] 工程文件 `.qgpj`（参数 + 结果 + 几何路径 + 备注，原子写）
 - [x] 拖放打开、最近文件、`QSettings` 记忆、求解日志面板
-- [x] `qgselftest` 冒烟自检（37 项，含 Ed25519 RFC 8032 向量、PDF 页数与渲染覆盖率断言）
+- [x] `qgselftest` 冒烟自检（40 项，含 Ed25519 RFC 8032 向量、续费门禁、PDF 页数与渲染覆盖率断言）
 - [ ] 闭源求解器接入（需加密库）
 - [x] 签名升级为 Ed25519 公钥验签（私钥只在签发侧）
 - [x] 导入路径原子替换（不再“先删再拷”，失败不会两头落空）
